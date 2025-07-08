@@ -1,0 +1,1496 @@
+---
+title: "The legacy of past heatwaves on 'off-host' parasite stages: Reduced infection risk and costs in the Daphnia-Pasteuria system"
+author: "Justine Boutry"
+date: "2024-11-05"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(ggplot2)
+library(patchwork)
+library(DHARMa)
+library(sjPlot)
+library(MuMIn)
+library(survival)
+library(survminer)
+library(gridExtra)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(glmmTMB)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(glmmTMB)
+library(coxme)
+library(brms)
+library(MASS)
+library(car)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ordinal)
+```
+\
+This supplementary R Markdown document provides the full analytical workflow and visual outputs referenced in the main manuscript "The legacy of past heatwaves on 'off-host' parasite stages: Reduced infection risk and costs in the Daphnia-Pasteuria system". All analyses were performed in R 4.4.2 (2024-10-31). The dataset and scripts are provided to ensure full reproducibility.
+
+## 1. Data preparation and processing
+
+This section outlines the steps taken to clean, transform and structure our dataset for subsequent analysis. Our dataset comprises various measurements of a sample of biological entities, including spore counts, infection statuses and life cycle metrics such as clutch size, offspring numbers and developmental stages. However, the raw dataset contained missing values that needed to be addressed prior to analysis.
+
+### 1.1 Column descriptions
+
+Below is a detailed explanation of each column in the dataset. This breakdown is intended to provide clarity on the variable names, units, and biological significance.
+
+- **ID**:  A unique identifier for each sample, used to distinguish individual observations.
+
+- **Temperature**: The experimental temperature (in °C) at which each sample was maintained. The possible values are 20, 30 and 40 °C, which were used to examine the effects of temperature on biological parameters.
+
+- **Isolate**: Identifier for the specific parasite genotype used in the experiment (e.g. C1, C14, C18, C24). Each genotype represents a distinct biological strain or lineage of the parasite.
+
+- **Infection_problem**: A binary indicator noting whether any issues were encountered during infection monitoring. Missing values indicate no known issues.
+
+- **Clutch**: The number of clutch events recorded for each sample, representing reproductive events or cycles.
+
+- **Nb_offspring**: The total number of offspring produced by each sample across clutch events.
+
+- **FirstClutchAge**: The age (in days) at which the first clutch was recorded.
+
+- **LastClutchAge**: The age (in days) at which the last clutch was recorded.
+
+- **DeathAge**: Age (in days) at death, providing a measure of lifespan for each sample.
+
+- **Accidental_death**: Indicates whether the death was accidental. Missing values suggest non-accidental or unspecified causes.
+
+- **ReddishAge**: The age (in days) at which reddish pigmentation was first observed, which is a developmental marker.
+
+- **Not_red_age**: An alternative developmental marker indicating an age (in days) at which reddish pigmentation was not observed.
+
+- **Volume_counted**: The volume of the sample (in microlitres) counted under observation and used to standardise spore counts.
+
+- **InfectedStatus**: The infection status of each sample, with possible values including 'infected', 'not_inf' (not infected) or 'lost' for missing data.
+
+- **Number of mature spores**: The raw count of mature spores in the sample.
+
+- **Number of immature spores** (`imm`): The raw count of immature spores representing early-stage spore development.
+
+- **Nb of white spores** (`whites`): The number of white spores, which are mature but may appear different depending on the time elapsed between sample preparation and counting.
+
+- **cauliflowers**: A categorical indicator (yes/no) of whether cauliflower-like structures were observed in the sample.
+
+- **grapes**: A categorical indicator (yes/no) of the presence of grape-like structures, which are another morphological feature observed in spore samples.
+
+- **Nb of activated spores**: The number of activated spores, which often indicates the number in a potentially infectious state.
+
+- **mature_load**: The calculated load of mature spores, standardised based on 'Volume_counted'. This represents the density of mature spores in the sample volume.
+
+- **imm_load**: The load of immature spores, calculated similarly to 'mature_load' for standardised comparison.
+
+- **ratio**: The ratio of mature spores to the total spore load (mature and immature). This metric provides an indication of spore maturation and infection severity.
+
+- **Batch**: A grouping variable created based on ID, representing experimental batches. This factor enables batch effects to be controlled in the analysis.
+
+- **group**: A combination of isolation and temperature conditions (e.g. C1840) used to categorise samples in specific experimental settings.
+
+### 1.2 Key Data Processing Steps
+
+1. **Variable Conversion**: Several columns required type conversion to facilitate analysis. For example, 'Volume_counted' and 'Nb of white spores' were converted to numeric values. During this process, some 'NA' values were introduced due to incompatible data entries.
+   
+2. **Factorization**: The categorical variables 'cauliflowers', 'grapes' and 'group' were converted into factor variables. Additionally, the 'Isolate' and 'Temperature' variables were explicitly factored to ensure clear categorical representation.
+
+3. **Data Subsetting and Exclusion**: Observations with specific conditions, such as an ID of 50, were excluded to maintain data integrity.
+
+4. **Calculation of Derived Variables**:
+   - **Spore Load Calculations**: Two new variables were calculated: 'mature_load' and 'imm_load', representing the load of mature and immature spores respectively, standardised per unit volume.
+   - **Infection Ratio**: The ratio variable was calculated as the proportion of mature spores relative to the total spore load to provide an indicator of infection severity.
+
+5. **Grouping and Batching**: Observations were assigned to batches for experimental grouping based on their ID. This enables batch effects to be tracked and controlled in downstream analysis.
+
+```{r, echo=FALSE, warning=FALSE}
+setwd("/Users/justineboutry/Desktop/bordel/THESE/post-doct/Project tel aviv/Projects/Short experiment on clones/Measurement sheet/Experiment-1-backup")
+
+data <- read_delim("Clonal_screening_dataset - daphnia_dataset_2024-11-11.csv", 
+    delim = ";", escape_double = FALSE, col_types = cols(`Nb of activacted spores` = col_skip(), 
+        Counting_notes = col_skip()), trim_ws = TRUE)
+#data <- subset(data, data$Temperature != 'CTRL')
+data$Volume_counted <- as.numeric(data$Volume_counted)
+data$whites <- as.numeric(data$'Nb of white spores')
+data$cauliflowers <- as.factor(data$cauliflowers)
+data$grapes <- as.factor(data$grapes)
+data$group <- as.factor(paste0(data$Isolate,data$Temperature))
+data$statusDeath <- ifelse(is.na(data$DeathAge), 0, 1)
+data <- data %>%
+  mutate(DeathAge = ifelse(is.na(DeathAge), 67, DeathAge),
+        whites = ifelse(is.na(whites), 0, whites),
+        `Number of imature spores` = ifelse(is.na(`Number of imature spores`), 0, `Number of imature spores`),
+        `Number of mature spores` = ifelse(is.na(`Number of mature spores`), 0, `Number of mature spores`))
+data$InfectedStatus <- factor(data$InfectedStatus, levels = c("not_inf", "infected"), ordered = FALSE)
+data$Isolate <- factor(data$Isolate, levels = c("C14", "C1", "C18", "C24"), ordered = FALSE)
+data$Temperature <- factor(data$Temperature, levels = c(20, 30, 40), ordered = TRUE)
+data$Never_repro <- ifelse(is.na(data$Clutch), 1, 0)
+
+# Batch grouping
+data$Batch <- (data$ID - 1) %% 50 + 1
+data$Batch <- as.factor(data$Batch)
+
+# corrections
+data$DeathAge[data$ID==729] <- 67
+data$imm_load[data$ID=="138"]<-0 
+data <- subset(data, data$ID!=50) # abnormalities in the reports
+
+# Spores load calculations
+data$imm <- as.numeric(data$`Number of imature spores`)
+data$mat <- as.numeric(data$`Number of mature spores`)+data$whites
+data$mature_load <- data$mat/400*20*1000000*data$Volume_counted/1000
+data$imm_load <- data$imm/400*20*1000000*data$Volume_counted/1000
+data$ratio <- data$mature_load/(data$mature_load+data$imm_load)
+
+# Maximal stage reached variable
+data <- data %>%
+  mutate(
+    stade_max = case_when(
+      cauliflowers == "yes" & mat > 20 ~ "2nd_Cauliflower",
+      mat > 0 ~ "Mature",  # Si le nombre de spores matures est > 0
+      imm > 0 ~ "Immature",  # Si le nombre de spores immatures est > 0
+      cauliflowers == "yes" ~ "Cauliflower",  # Si cauliflowers est "yes"
+      grapes == "yes" ~ "Grapes",  # Si grapes est "yes"
+      TRUE ~ "None",  # Si aucun stade n'est atteint
+    )
+  )
+data$stade_max <- factor(data$stade_max, levels=c("None","Cauliflower","Grapes", "Immature", "Mature","2nd_Cauliflower"))
+
+# Subseting
+crushed <- subset(data, InfectedStatus != 'NA' & Temperature!="NA")
+infected <- subset(data, data$InfectedStatus=='infected'& Temperature!="NA")
+not_infected <- subset(data, data$InfectedStatus=='not_inf' & Isolate!="NA")
+
+# color palette
+lineage_colors <- c( "blue", "purple","turquoise", "red")
+
+summary(data)
+```
+### 1.3 Objectives and Methodology
+
+1. **Objective**: primary goal is to determine the effect of genotype (`Isolate`) and temperature conditions (`Temperature`) on each of the measured traits. The aim is to assess the individual and interactive effects of these variables while accounting for the random effects associated with batch variability.
+
+2. **Model Selection**:
+   - **Step 1: Random Effect Assessment** – We fit two models to evaluate the importance of including batch as a random effect. We compare the model with the random effect against a fixed-only model using AICc to determine whether batch variability significantly affects infection probability.
+   - **Step 2: Fixed Effect Assessment** – A series of models were fit with varying fixed effects (Isolate, Temperature, and their interaction), each including the batch as a random effect. The models were then evaluated using AICc to select the optimal fixed-effect structure.
+   - **Step 3: Final Model** – Based on model selection criteria, the final model was fitted to estimate infection probability as a function of temperature while accounting for batch as a random effect. The performance of this model was assessed through residual simulation to confirm its suitability.
+
+4. **Results and Interpretation**: The final model outputs are summarised, enabling us to interpret the fixed effects of temperature on infection likelihood while controlling for batch variability.
+
+## 2. Infectious Rate Analysis
+
+This section examines the impact of temperature and the parasite's genotype on infection rates. Specifically, we use generalised linear mixed models to examine how these factors, along with random batch effects, contribute to the probability of infection.
+
+```{r analyze inf, echo=TRUE, warning=FALSE, message=F}
+
+# Step 1: Evaluating the importance of random effect (Batch)
+Inf5 <- glmmTMB(data = crushed, InfectedStatus ~ Isolate * Temperature, family = "binomial", REML = TRUE)
+Inf5R <- glmmTMB(data = crushed, InfectedStatus ~ Isolate * Temperature + (1 | Batch), family = "binomial", REML = TRUE)
+
+# Comparing models with and without random effect using AICc
+AICc(Inf5, Inf5R) 
+
+# Step 2: Fixed effects selection
+Inf0 <- glmmTMB(data = crushed, InfectedStatus ~ 1 + (1 | Batch), family = "binomial", REML = FALSE)
+Inf1 <- glmmTMB(data = crushed, InfectedStatus ~ Isolate + (1 | Batch), family = "binomial", REML = FALSE)
+Inf2 <- glmmTMB(data = crushed, InfectedStatus ~ Temperature + (1 | Batch), family = "binomial", REML = FALSE)
+Inf3 <- glmmTMB(data = crushed, InfectedStatus ~ Isolate + Temperature + (1 | Batch), family = "binomial", REML = FALSE)
+Inf4 <- glmmTMB(data = crushed, InfectedStatus ~ Isolate * Temperature + (1 | Batch), family = "binomial", REML = FALSE)
+
+# AICc comparison for fixed effects models
+AICc(Inf0, Inf1, Inf2, Inf3, Inf4)
+
+# Model summaries for selected models
+tab_model(Inf2, Inf3, Inf4, Inf1)
+
+# Step 3: Final model selection based on AICc and interpretability
+Inf_final <- glmmTMB(data = crushed, InfectedStatus ~ Temperature + (1 | Batch), family = "binomial", REML = TRUE)
+
+# Validating final model with residuals simulation
+simulateResiduals(Inf_final, plot = TRUE)
+
+# Summarizing the final model without intercept
+tab_model(Inf_final, show.intercept = FALSE)
+```
+
+\
+Higher temperatures endured by spores significantly reduce infection rates, with the odds of infection decreasing by 57% per temperature unit increase (OR = 0.43, p < 0.001). No intermediate optimal temperature effect was observed, which suggests a consistent linear decrease. Although batch effects accounted for some variability, temperature remains the main driver.
+
+#### Visualisation
+
+```{r, echo=FALSE, warning=FALSE, message =FALSE}
+Isol_trend <- crushed %>%
+  group_by(Temperature, Isolate) %>%
+  summarise(
+    n_infected = sum(InfectedStatus == "infected", na.rm = TRUE),  # Count of infected individuals
+    n_total = n(),  # Total number of individuals
+    proportion_infected = n_infected / n_total  # Infection proportion
+  )
+
+# Global trend (infection proportion per temperature)
+global_trend <- crushed %>%
+  group_by(Temperature) %>%
+  summarise(
+    n_infected = sum(InfectedStatus == "infected", na.rm = TRUE),
+    n_total = n(),
+    proportion_infected = n_infected / n_total,
+    
+    # Confidence intervals for infection proportions
+    prop_test = list(prop.test(n_infected, n_total, correct = FALSE)),
+    lower_ci = prop_test[[1]]$conf.int[1],
+    upper_ci = prop_test[[1]]$conf.int[2]
+  )
+
+# Plot showing global and isolate-specific trends for infection rates
+gg_temperature <- ggplot() +
+  geom_line(data = global_trend, aes(x = as.numeric(Temperature), y = proportion_infected),
+            color = "black", size = 1.5, group = 1) +  # Global trend
+  geom_ribbon(data = global_trend, aes(x = as.numeric(Temperature), ymin = lower_ci, ymax = upper_ci),
+              fill = "grey", alpha = 0.4) +  # Confidence interval for global trend
+  geom_line(data = Isol_trend, aes(x = as.numeric(Temperature), y = proportion_infected, color = Isolate, group = Isolate),
+            size = 1, alpha = 1) +  # Isolate-specific trends
+  labs(title = "Impact of heatwave temperature on\nProbability of Infection",
+       x = "Temperature",
+       y = "Probability of Infection") +
+  theme_minimal(base_size = 14) +
+  #scale_color_viridis_d(option = "inferno")+
+  scale_color_manual(values = lineage_colors, name = "Parasite Strain") +
+  theme(legend.position = "right", 
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12))
+gg_temperature
+```
+
+## 3. Survival Analysis
+
+This section explore how temperature and the parasite's genotype contribute to the survival of infected individuals (also known as virulence) and uninfected individuals (potentially related to defense costs).
+
+### 3.1 Infected individuals survival (= parasite virulence)
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+surv_obj <- Surv(time = infected$DeathAge, event = infected$statusDeath)
+
+fit_cox_5 <- coxph(surv_obj ~ Isolate * Temperature, data = infected)
+fit_cox_5R <- coxme(surv_obj ~ Isolate * Temperature + (1|Batch), data = infected)
+
+AICc(fit_cox_5, fit_cox_5R) # No random effect
+
+fit_cox_1 <- coxme(surv_obj ~ 1 + (1|Batch), data = infected)
+fit_cox_2 <- coxme(surv_obj ~ Temperature + (1|Batch), data = infected)
+fit_cox_3 <- coxme(surv_obj ~ Isolate + (1|Batch), data = infected)
+fit_cox_4 <- coxme(surv_obj ~ Isolate + Temperature + (1|Batch), data = infected)
+fit_cox_5 <- coxme(surv_obj ~ Isolate * Temperature + (1|Batch), data = infected)
+
+AICc(fit_cox_1,fit_cox_2,fit_cox_3,fit_cox_4,fit_cox_5)
+
+summary(fit_cox_3)
+
+### Test assumptions of proportional hazards
+test_ph <- cox.zph(fit_cox_3)
+print(test_ph)
+plot(test_ph)
+
+# Extract results from summary
+summary_results <- summary(fit_cox_3)
+
+# Extract coefficients, standard errors, and p-values
+coef <- summary_results$coefficients[, "coef"]
+se_coef <- summary_results$coefficients[, "se(coef)"]
+p_values <- summary_results$coefficients[, "p"]
+
+# Calculate HRs and confidence intervals
+HR <- exp(coef)
+lower_CI <- exp(coef - 1.96 * se_coef)
+upper_CI <- exp(coef + 1.96 * se_coef)
+
+# Combine results into a data frame
+results_df <- data.frame(
+  Predictors = rownames(summary_results$coefficients),
+  HR = HR,
+  Lower_95_CI = lower_CI,
+  Upper_95_CI = upper_CI,
+  p_value = p_values
+)
+```
+#### Visualisation
+
+```{r, echo=F}
+surv_object <- Surv(time = infected$DeathAge, event = infected$statusDeath)
+km_fit <- survfit(surv_object ~ Isolate, data = infected)
+
+ggsurvplot(
+  km_fit, 
+  data = infected,
+  xlab = "Survival time (post-infection)", 
+  ylab = "Probability of survival", 
+  title = "Kaplan-Meier survival curve",
+  conf.int = F, 
+  #pval = TRUE, 
+  risk.table = TRUE,
+  ggtheme = theme_minimal(),
+  palette = lineage_colors, 
+  xlim = c(20, 65)
+) 
+```
+
+### 3.2 Expsosed but non infected daphnia (potential defence costs)
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+surv_obj <- Surv(time = not_infected$DeathAge, event = not_infected$statusDeath)
+
+fit_cox_5 <- coxph(surv_obj ~ Isolate * Temperature, data = not_infected)
+fit_cox_5R <- coxme(surv_obj ~ Isolate * Temperature + (1|Batch), data = not_infected)
+
+AICc(fit_cox_5, fit_cox_5R) # No random effect
+
+fit_cox_1 <- coxph(surv_obj ~ 1, data = not_infected)
+fit_cox_2 <- coxph(surv_obj ~ Temperature, data = not_infected)
+fit_cox_3 <- coxph(surv_obj ~ Isolate, data = not_infected)
+fit_cox_4 <- coxph(surv_obj ~ Isolate + Temperature, data = not_infected)
+fit_cox_5 <- coxph(surv_obj ~ Isolate * Temperature, data = not_infected)
+
+AICc(fit_cox_1,fit_cox_2,fit_cox_3,fit_cox_4,fit_cox_5)
+
+summary(fit_cox_2)
+
+### Test assumptions of proportional hazards
+test_ph <- cox.zph(fit_cox_2)
+print(test_ph)
+plot(test_ph) ### Rejected
+
+### Log centered time model to compare
+
+# Create log_time vaiable
+not_infected$log_time <- scale(log(not_infected$DeathAge + 0.01), center = TRUE, scale = FALSE)
+not_infected$Temperature <- factor(not_infected$Temperature, levels = c("20", "30", "40"))
+
+# Recreate iteraction variables
+not_infected$Temp30 <- ifelse(not_infected$Temperature == "30", 1, 0)
+not_infected$Temp40 <- ifelse(not_infected$Temperature == "40", 1, 0)
+not_infected$Temp30_log_time <- not_infected$Temp30 * not_infected$log_time
+not_infected$Temp40_log_time <- not_infected$Temp40 * not_infected$log_time
+
+# Model with log-scale variable
+surv_obj <- Surv(time = not_infected$DeathAge, event = not_infected$statusDeath)
+
+fit_mult_20 <- coxph(surv_obj ~ Isolate:Temp30_log_time + Isolate:Temp40_log_time, data = not_infected)
+fit_add_20  <- coxph(surv_obj ~ Isolate + Temp30_log_time + Temp40_log_time, data = not_infected)
+fit_temp_20 <- coxph(surv_obj ~ Temp30_log_time + Temp40_log_time, data = not_infected)
+fit_isol_20 <- coxph(surv_obj ~ Isolate, data = not_infected)
+fit_0_20    <- coxph(surv_obj ~ 1, data = not_infected)
+
+AICc(fit_mult_20, fit_add_20, fit_temp_20, fit_isol_20, fit_0_20)
+
+fit_clean_20 <- coxph(surv_obj ~ Temp30_log_time + Temp40_log_time, data = not_infected)
+cox.zph(fit_clean_20)
+summary(fit_clean_20)
+
+# Extract results from summary
+summary_results <- summary(fit_clean_20)
+
+```
+\
+The model indicates that temperature significantly decreases the hazard rate, 
+with a 35.8% reduction in mortality risk (HR = 0.64, p = 0.007), 
+suggesting potential temperature-mediated effects on host survival.
+
+#### Visualisation
+
+```{r, echo=FALSE}
+surv_obj_Ninf <- Surv(time = not_infected$DeathAge, event = not_infected$statusDeath)
+km_fit_Ninf2 <- survfit(surv_obj_Ninf ~ Temperature, data = not_infected)
+km_df_Ninf2 <- surv_summary(km_fit_Ninf2, data = not_infected)
+
+ggplot(km_df_Ninf2, aes(x = time, y = surv, color = Temperature)) +
+  geom_step(linetype=1, size=1) +
+  #geom_ribbon(aes(ymin = lower, ymax = upper, fill = Temperature), alpha = 0.2, color = NA) +  # Confidence intervals
+  labs(
+    x = "Age after infection",
+    y = "Survival probability",
+    title = "Increase survival from Heat-Stressed Spores in Exposed\nNot Infected Daphnia (0.0103 *)"
+  ) +
+  ylim(0,1)+
+  #facet_wrap( ~ Isolate) +
+  scale_color_manual(values=c("chartreuse4", "darkorange", "darkred"))+
+  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred"))+
+  theme_minimal() 
+
+```
+
+### 3.3 Expsosed uninfected daphnia (= potential defence costs) WITH control non exposed group
+
+```{r, echo=F}
+dataC <- read_delim("Clonal_screening_dataset - daphnia_dataset_2024-11-11.csv", 
+    delim = ";", escape_double = FALSE, col_types = cols(`Nb of activacted spores` = col_skip(), 
+        Counting_notes = col_skip()), trim_ws = TRUE)
+
+#data <- subset(data, data$Temperature != 'CTRL')
+dataC$group <- as.factor(paste0(dataC$Isolate,dataC$Temperature))
+dataC$statusDeath <- ifelse(is.na(dataC$DeathAge), 0, 1)
+dataC$DeathAge[data$ID==729] <- 67
+
+```
+
+#### Visualisation
+
+```{r, echo=FALSE}
+surv_obj_Ninf <- Surv(time = not_infected$DeathAge, event = not_infected$statusDeath)
+km_fit_Ninf2 <- survfit(surv_obj_Ninf ~ Temperature, data = not_infected)
+km_df_Ninf2 <- surv_summary(km_fit_Ninf2, data = not_infected)
+
+
+ggplot(km_df_Ninf2, aes(x = time, y = surv, color = Temperature)) +
+  geom_step(linetype=1, size=1) +
+  #geom_ribbon(aes(ymin = lower, ymax = upper, fill = Temperature), alpha = 0.2, color = NA) +  # Confidence intervals
+  labs(
+    x = "Age after infection",
+    y = "Survival probability",
+    title = "Increase survival from Heat-Stressed Spores in Exposed\nNot Infected Daphnia"
+  ) +
+  ylim(0,1)+
+  scale_color_manual(values=c("chartreuse4", "darkorange", "darkred", "darkgray"))+
+  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred", "darkgrey"))+
+  theme_minimal() 
+
+```
+
+## 4. Host reproduction
+
+In this section we explored how the exposure and the infection by heat-stressed parasites affected the host reproduction. First we evaluated the number of individuals fully castrated in exposed uninfected and in infected Daphnias. This divisions into two sub analysis helped us to find more adapted models to describe the host reproductive patern. 
+
+### 4.1 Full castration
+
+One of the consequences of _Pasteuria ramosa_ infection in Daphnia is the reduction in the allocation to repoduction, which can also be potentially due to the energetic cost of immune response for uninfected host. Here we focused on the proportion of non-reproducing individuals.
+
+#### 4.1.1 Uninfected individuals
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+options(na.action = "na.fail")
+
+FC1 <- glmmTMB(data=not_infected, Never_repro~ Isolate + Temperature + DeathAge, family = "binomial", REML=T)
+FC1R <- glmmTMB(data=not_infected, Never_repro ~ Isolate + Temperature+ DeathAge + (1|Batch), family = "binomial", REML=T)
+
+AICc(FC1, FC1R)
+
+FC1 <- glmmTMB(data=not_infected, Never_repro ~ Isolate * Temperature + DeathAge + (1|Batch), family = "binomial")
+model_selection <- dredge(FC1)
+
+# Tabl of model comparison
+model_selection
+
+# best model
+best_model <- get.models(model_selection, 1)[[1]]
+summary(best_model)
+
+simulateResiduals(best_model, plot=T)
+
+models_within_2_AIC <- subset(model_selection, delta < 2)
+selected_models <- get.models(models_within_2_AIC, 1:nrow(models_within_2_AIC))
+
+tab_model(selected_models, show.intercept = F)
+summary(best_model)
+tab_model(best_model)
+```
+\
+Only the age at death seems to reprduce at least once in their life time.
+
+##### Visualisation
+
+```{r, echo=FALSE, warning=FALSE}
+
+data_cat_summary_Ninf <- not_infected %>%
+  mutate(DeathAgeGroup = cut(DeathAge, breaks = seq(15, max(DeathAge, na.rm = TRUE), by = 5), right = FALSE)) %>%
+  filter(!is.na(Temperature)) %>%  # Exclure les valeurs manquantes de Temperature
+  group_by(DeathAgeGroup, Temperature) %>%
+  summarise(
+    Proportion = mean(Never_repro, na.rm = TRUE),
+    n = n(),
+    Error = ifelse(n > 0, sqrt((Proportion * (1 - Proportion)) / n), NA)
+  ) %>%
+  ungroup() %>%
+  complete(DeathAgeGroup, Temperature, fill = list(Proportion = 0, n = 0, Error = NA))
+
+# Graphique
+p1 <- ggplot(data_cat_summary_Ninf, aes(x = DeathAgeGroup, y = Proportion, fill = Temperature)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = .8, width = 1) +  
+  geom_errorbar(aes(ymin = Proportion - Error, ymax = Proportion + Error), 
+                position = position_dodge(0.9), width = 0.25) +  # Barres d'erreur
+  labs(title = "Fully castrated infected Daphnia", x = "Death Age Group (5-day intervals)", y = "Proportion") +
+  #scale_fill_manual(values = lineage_colors, name = "Parasite Strain") +
+  theme_minimal()+
+  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred"))
+p1
+```
+
+#### 4.1.2 Infected individuals
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+
+FC1 <- glmmTMB(data=infected, Never_repro ~ Isolate * Temperature + DeathAge, family = "binomial", REML=T)
+FC1R <- glmmTMB(data=infected, Never_repro ~ Isolate * Temperature + DeathAge + (1|Batch), family = "binomial", REML=T)
+
+AICc(FC1, FC1R)
+
+FC1 <- glmmTMB(data=infected, Never_repro ~ Isolate * Temperature + DeathAge + (1|Batch), family = "binomial", 
+               na.action = na.fail)
+model_selection <- dredge(FC1)
+
+# Voir les meilleurs modèles
+model_selection
+# Sélectionner le meilleur modèle basé sur l'AIC
+best_model <- get.models(model_selection, 1)[[1]]
+simulateResiduals(best_model, plot=T)
+
+models_within_2_AIC <- subset(model_selection, delta < 2)
+selected_models <- get.models(models_within_2_AIC, 1:nrow(models_within_2_AIC))
+tab_model(selected_models, show.intercept = F)
+tab_model(best_model, show.intercept = F)
+```
+
+##### Visualisation
+
+```{r, echo=F, warning=F}
+data_cat_summary_inf <- infected %>%
+  group_by(Temperature, Isolate) %>%
+  summarise(
+    Proportion = mean(Never_repro),  # Calcul de la proportion moyenne
+    n = n(),  # Taille de l'échantillon
+    Error = sqrt((Proportion * (1 - Proportion)) / n),  # Erreur standard pour une proportion
+    AgeDeath= mean(DeathAge)
+  )
+
+p1 <- ggplot(data_cat_summary_inf, aes(x = Temperature, y = Proportion, fill = Isolate)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", alpha=.8) +  # Barres côte à côte
+  geom_errorbar(aes(ymin = Proportion - Error, ymax = Proportion + Error), 
+                position = position_dodge(0.9), width = 0.25) +  # Barres d'erreur
+  labs(title = "Fully castrated infected Daphnia", x = "Temperature", y = "Proportion") +
+  scale_fill_manual(values = lineage_colors, name = "Parasite Strain") +
+  theme_minimal()
+p1
+```
+\
+A heatwave experienced by the parasite appears to relax its castrating effect on the host, leading to a lower probability of total sterility—except in isolate C1, which shows a dramatically increased risk of host sterility after exposure to 40 °C. For this isolate, the odds of host sterility rise sharply with temperature (OR = 57.4, p = 0.002 for the linear effect), meaning that each unit increase in temperature multiplies the risk of total host sterility by over fifty times compared to the reference strain. This suggests a highly heat-sensitive castrating phenotype for isolate C1.
+
+Isolate C24, on the other hand, shows a trend toward maintaining stable castration efficiency across the temperature gradient, but these differences are not statistically significant (OR = 9.66, p = 0.073 for the interaction with temperature), suggesting that its behavior is not distinguishable from other strains with the current dataset.
+
+### 4.2 Number of individuals produced
+
+In this section we were interested in understanding the role of parsite heat-stress and genotype on the number of offspring produced. Indeed, one of the consequences of the infection in Daphnia is the reduction in the allocation to parasite repoduction, (or an eventual cost of immune response for uninfected individuals), even if the host is not fully castrated.
+
+#### 4.2.1 Uninfected individuals
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+repro_nf <- subset(data, data$Clutch>0 & InfectedStatus=="not_inf" & Temperature!="NA")
+repro_nf$Temperature <- factor(repro_nf$Temperature, ordered = T)
+
+FC1 <- glmmTMB(data=repro_nf, Nb_offspring ~ Isolate * Temperature + DeathAge, family = "gaussian", REML=F)
+#FC1 <- glmmTMB(data=data, Nb_offspring ~ Isolate * Temperature, family = "poisson")
+#FC1 <- glmmTMB(data=repro_nf, Nb_offspring ~ Isolate * Temperature * DeathAge, family = "nbinom2", REML=T)
+#FC1 <- glmmTMB(data=repro_nf, log(Nb_offspring) ~ Isolate * Temperature + , family = "gaussian", REML=T)
+
+simulateResiduals(FC1, plot=T) # I don't find better and I have no reason to exclude the outlier.
+
+FC1R <- glmmTMB(data=repro_nf, Nb_offspring ~ Isolate * Temperature + DeathAge  + (1|Batch), family = "gaussian", REML=F)
+FC1 <- glmmTMB(Nb_offspring ~ Isolate * Temperature + DeathAge, data = repro_nf, family = "gaussian", REML=F)
+
+AICc(FC1, FC1R)# Batch effect NOT important!
+
+FC1 <- glmmTMB(Nb_offspring ~ Isolate * Temperature + DeathAge, data = repro_nf, family = "gaussian", na.action = na.fail)
+model_selection <- dredge(FC1R)
+
+model_selection
+
+best_model <- get.models(model_selection, 1)[[1]]
+simulateResiduals(best_model, plot=T)
+
+models_within_2_AIC <- subset(model_selection, delta < 2)
+selected_models <- get.models(models_within_2_AIC, 1:nrow(models_within_2_AIC))
+
+tab_model(best_model, show.intercept = F) # No effect
+summary(best_model)
+```
+
+##### Visualisation
+```{r, echo=F, warning=F}
+best_model <- glmmTMB(Nb_offspring ~ DeathAge , 
+                data = repro_nf, family = "gaussian", na.action = na.fail, REML=T)
+
+# Create a data frame with predictions
+deathage_seq <- seq(min(repro_nf$DeathAge), max(repro_nf$DeathAge), length.out = 100)
+pred_grid <- expand.grid(Temperature = temp_levels, DeathAge = deathage_seq, Isolate=Isolate)
+predictions <- predict(best_model, newdata = pred_grid, se.fit = TRUE)
+
+# Add predictions and confidence intervals to pred_grid
+pred_grid$Nb_offspring <- predictions$fit
+pred_grid$lower <- predictions$fit - 1.96 * predictions$se.fit
+pred_grid$upper <- predictions$fit + 1.96 * predictions$se.fit
+
+g <- ggplot(repro_nf, aes(y = Nb_offspring, x = DeathAge)) +
+  geom_line(data= pred_grid, aes(y = Nb_offspring, x = DeathAge), size=1) +
+  geom_ribbon(data= pred_grid, aes(ymin = lower, ymax = upper), alpha=0.2) +
+  geom_point(aes(color=Temperature))+
+  labs(
+    title = "Number of offspring \nNot infected Daphnias",
+    y = "Number of offspring",
+    x = "Host age at death (dpe)",
+    fill = "Infection Status"
+  ) +
+  theme_minimal() +
+  ylim(0,115)+
+  scale_color_manual(values = c("chartreuse4", "darkorange", "darkred")) + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.position = "right"
+  )
+g
+```
+
+Only the effect of the time is important here, each day, a daphnia produce in average 0.30 more offspring.
+
+#### 4.2.1 Infected individuals
+```{r, echo=TRUE, warning=FALSE, message=F}
+
+repro_inf <- subset(data, data$Clutch>0 & InfectedStatus=="infected" & Temperature!="NA")
+repro_inf$Temperature <- factor(repro_inf$Temperature, ordered = T)
+
+FC1 <- glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge, family = "nbinom2", REML=T)
+
+FC1R <- glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge + (1|Batch), family = "nbinom2", REML=T)
+AICc(FC1, FC1R)# no batch effect
+
+FC1 <- glmmTMB(Nb_offspring ~ Isolate * Temperature + DeathAge  , 
+                data = repro_inf, family = "nbinom2", na.action = na.fail)
+model_selection <- dredge(FC1)
+
+
+model_selection
+
+best_model <- get.models(model_selection, 1)[[1]]
+simulateResiduals(best_model, plot=T) 
+
+models_within_2_AIC <- subset(model_selection, delta < 2)
+selected_models <- get.models(models_within_2_AIC, 1:nrow(models_within_2_AIC))
+tab_model(selected_models, show.intercept = F)
+
+tab_model(best_model, show.intercept = F)
+summary(best_model)
+```
+
+##### Visualisation
+
+```{r, echo=FALSE, warning=F}
+best_model <- glmmTMB(Nb_offspring ~ Isolate + DeathAge , 
+                data = repro_inf, family = "nbinom2", na.action = na.fail)
+
+# Create a data frame with predictions
+temp_levels <- c(20, 30, 40)
+Isolate <- c("C14", "C1", "C18", "C24")
+deathage_seq <- seq(min(repro_inf$DeathAge), max(repro_inf$DeathAge), length.out = 100)
+pred_grid <- expand.grid(Temperature = temp_levels, DeathAge = deathage_seq, Isolate=Isolate)
+
+predictions <- predict(best_model, newdata = pred_grid, se.fit = TRUE)
+
+# Add predictions and confidence intervals to pred_grid
+pred_grid$Nb_offspring <- exp(predictions$fit)
+pred_grid$lower <- exp(predictions$fit - 1.96 * predictions$se.fit)
+pred_grid$upper <- exp(predictions$fit + 1.96 * predictions$se.fit)
+
+d<-ggplot(repro_inf, aes(y = Nb_offspring, x = DeathAge, color= Isolate)) +
+  #geom_smooth(method='lm', alpha = 0.3, se=F) +
+  geom_jitter(width=0.1, size=2, alpha=1)+
+  labs(
+    title = "Total number of offspring produced\nIinfected Daphnias",
+    x = "Lineage",
+    y = "Total number of offspring",
+    fill = "Lineage"
+  ) +
+  facet_grid(cols =vars(Temperature))+
+  scale_fill_manual(values = lineage_colors) +
+  scale_color_manual(values = lineage_colors) +
+  theme_minimal() +
+  #ylim(0,120)+
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.position = "right"
+  )
+d
+
+e <- ggplot(pred_grid, aes(x = DeathAge, y = Nb_offspring)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill=Isolate), alpha = 0.14) +  # Confidence intervals with no contour
+  #geom_point(data = data_mat, aes(x = DeathAge, y = mature_load,color=Isolate), size = 3, alpha = 0.8) +  # Real data points
+  geom_line(size = 1.2, aes(color=Isolate)) +  # Predicted lines
+  #geom_smooth()+
+  scale_color_manual(values = lineage_colors) +  # Apply consistent colors to lines
+  scale_fill_manual(values = lineage_colors) +   # Apply consistent colors to ribbons
+  labs(
+    title = "",
+    x = "Death Age",
+    y = "",
+    color = "",
+    fill = ""
+  )+
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.position = "top"
+  )+
+  ylim(0,90)
+e
+```
+
+
+## 5. Parasite life-cycle
+
+This section explores how temperature and the genotype of the parasite contribute to the abundance of each stage of the life-cycle after infection, using generalized linear mixed models.
+
+### 5.1 Cauliflowers
+
+Cauliflowers corresponds to the first stage of the parasite life-cycle and here we are interested to understand how their presence/absence is affected by the temperature and/or the genotype of the spores. We also investigated the potential impact of the variations in time post-exposure, as all screened individuals died at different time.
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+data_c1 <- subset(data, data$cauliflowers!="not-well-counted" & data$cauliflowers!="counted-after-freezer" & data$stade_max!="2nd_Cauliflower" & Temperature!="NA")
+data_c1$Temperature <- factor(data_c1$Temperature,ordered=T)
+
+Caul <- glmmTMB(data=data_c1, cauliflowers~Temperature+Isolate+DeathAge, family = "binomial", REML= T)
+CaulR <- glmmTMB(data=data_c1, cauliflowers~Temperature+Isolate+DeathAge + (1|Batch), family = "binomial", REML= T)
+
+AICc(Caul, CaulR)
+
+#Not possible to calculate with random effect
+
+Caul1 <- glmmTMB(data=data_c1, cauliflowers~Temperature*Isolate*DeathAge, family = "binomial")
+
+Caul2 <- glmmTMB(data=data_c1, cauliflowers~Temperature+Isolate*DeathAge, family = "binomial")
+Caul3 <- glmmTMB(data=data_c1, cauliflowers~Temperature*Isolate+DeathAge, family = "binomial")
+Caul4 <- glmmTMB(data=data_c1, cauliflowers~Isolate+DeathAge*Temperature, family = "binomial")
+
+Caul5 <- glmmTMB(data=data_c1, cauliflowers~Isolate*DeathAge, family = "binomial")
+Caul6 <- glmmTMB(data=data_c1, cauliflowers~Temperature*Isolate, family = "binomial")
+Caul7 <- glmmTMB(data=data_c1, cauliflowers~DeathAge*Temperature, family = "binomial")
+
+Caul8 <- glmmTMB(data=data_c1, cauliflowers~Temperature+Isolate+DeathAge, family = "binomial")
+
+Caul9 <- glmmTMB(data=data_c1, cauliflowers~Isolate+DeathAge, family = "binomial")
+Caul10 <- glmmTMB(data=data_c1, cauliflowers~Temperature+Isolate, family = "binomial")
+Caul11 <- glmmTMB(data=data_c1, cauliflowers~DeathAge+Temperature, family = "binomial")
+
+Caul12 <- glmmTMB(data=data_c1, cauliflowers~DeathAge, family = "binomial")
+Caul13 <- glmmTMB(data=data_c1, cauliflowers~Isolate, family = "binomial")
+Caul14 <- glmmTMB(data=data_c1, cauliflowers~Temperature, family = "binomial")
+
+Caul0 <- glmmTMB(data=data_c1, cauliflowers~1, family = "binomial")
+
+AICc(Caul1, Caul2, Caul3, Caul4, Caul5, Caul6, Caul7, Caul8, Caul9, Caul10, Caul11, Caul12, Caul13, Caul14, Caul0)
+
+tab_model(Caul11, Caul12, Caul7, Caul8, Caul5, Caul2, Caul4, show.intercept = F)
+# No differences
+
+simulateResiduals(Caul11, plot=T)
+
+# best model 
+summary(Caul11)
+tab_model(Caul11, show.intercept = F)
+```
+
+\
+We observed that the time post-exposure is reducing of 9% the probability to observe first stage cauliflowers, temperature might have a role that is not significant with the current effective of our experimentation.
+
+#### Visualisation
+
+
+```{r, echo=F}
+# Filtrer les données pour exclure les NA dans la variable cauliflowers
+data_c1$Temperature <- as.factor(as.character(data_c1$Temperature))
+Caul11 <- glmmTMB(data=data_c1, cauliflowers~Temperature+DeathAge, family = "binomial")
+
+# Créer une séquence d'âges pour prédire les probabilités
+# Prévoir les probabilités avec le modèle logistique
+pred_data <- expand.grid(DeathAge = seq(1, 70), Temperature=c("20","30","40"))
+
+pred_data$Probability <- predict(Caul11, newdata = pred_data, type = "response")
+
+# Utilisation de predict() avec se.fit pour obtenir les valeurs ajustées et les erreurs standard
+predictions <- predict(Caul11, newdata = pred_data, type = "response", se.fit = TRUE)
+
+# Calcul des intervalles de confiance
+z_value <- qnorm(0.975)  # pour un intervalle de confiance à 95%
+pred_data$fit <- predictions$fit
+pred_data$lower <- predictions$fit - z_value * predictions$se.fit
+pred_data$upper <- predictions$fit + z_value * predictions$se.fit
+
+data_c1$caulif_n <- ifelse(data_c1$cauliflowers == "yes", 1, ifelse(data_c1$cauliflowers == "no", 0, NA))
+
+# Créer le ImmPhique avec les intervalles de confiance
+a <- ggplot() +
+  geom_jitter(data = data_c1, aes(x = DeathAge, y = caulif_n, color=Temperature), 
+              width = 0.3, height = 0.1, alpha = 0.5, size=3) +  # Dispersion des points pour la visibilité
+  geom_line(data = pred_data, aes(x = DeathAge, y = Probability, colour=Temperature), size = 1, group=1) +  # Courbes de prédiction
+  #geom_ribbon(data = pred_data, aes(x = DeathAge, ymin = lower, ymax = upper, group=1), alpha = 0.2) +  # Ajouter les intervalles de confiance
+  labs(
+    title = "Influence of the death age and the presence of imm_presence by Temperature",
+    x = "Age at death (post-exposure)",
+    y = "Probability of cauliflowers presence"
+  ) +
+  xlim(15,70)+
+  scale_color_manual(values=c("darkgreen", "orange", "darkred"))+
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  )
+a
+```
+
+### 5.2. Grape seed stage
+
+Grape seed stage corresponds to the second visible stage of the parasite life-cycle and here we are interested to understand how their presence/absence is affected by the temperature and the genotype of the spores. We also investigated the potential impact of the variations in time post-exposure, as all screened individuals died at different time.
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+data_crushed_inf_c <- subset(infected, infected$grapes!="not-well-counted" & infected$grapes!="counted-after-freezer")
+
+Grap <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature+Isolate+DeathAge, family = "binomial")
+GrapR <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature+Isolate+DeathAge+ (1|Batch), family = "binomial")
+
+AICc(Grap,GrapR) # No need for random effect
+
+Grap1 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature*Isolate*DeathAge, family = "binomial")
+Grap2 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature+Isolate*DeathAge, family = "binomial")
+Grap3 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature*Isolate+DeathAge, family = "binomial")
+Grap4 <- glmmTMB(data=data_crushed_inf_c, grapes~Isolate+DeathAge*Temperature, family = "binomial")
+
+Grap5 <- glmmTMB(data=data_crushed_inf_c, grapes~Isolate*DeathAge, family = "binomial")
+Grap6 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature*Isolate, family = "binomial")
+Grap7 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature*DeathAge, family = "binomial")
+
+Grap8 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature+Isolate+DeathAge, family = "binomial")
+
+Grap9 <- glmmTMB(data=data_crushed_inf_c, grapes~Isolate+DeathAge, family = "binomial")
+Grap10 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature+Isolate, family = "binomial")
+Grap11 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature+DeathAge, family = "binomial")
+
+Grap12 <- glmmTMB(data=data_crushed_inf_c, grapes~DeathAge, family = "binomial")
+Grap13 <- glmmTMB(data=data_crushed_inf_c, grapes~Isolate, family = "binomial")
+Grap14 <- glmmTMB(data=data_crushed_inf_c, grapes~Temperature, family = "binomial")
+
+Grap0 <- glmmTMB(data=data_crushed_inf_c, grapes~1, family = "binomial")
+
+AICc(Grap1, Grap2, Grap3, Grap4, Grap5, Grap6, Grap7, Grap8, Grap9, Grap10, Grap11, Grap12, Grap13, Grap14, Grap0)
+
+tab_model(Grap14, Grap11, Grap10, Grap8, Grap0, show.intercept = F)
+# Temperature increase the chances to observe grapes
+
+simulateResiduals(Grap14, plot=T)
+
+summary(Grap14)
+tab_model(Grap14, show.intercept = F)
+```
+\
+We observed that the temperature increases the odds of observing grape stage seeds by 168%.
+
+#### Visualisation
+
+```{r, echo=F}
+data_crushed_inf_c$grapes_n <- ifelse(data_crushed_inf_c$grapes == "yes", 1, ifelse(data_crushed_inf_c$grapes == "no", 0, NA))
+
+pred_data <- expand.grid(Temperature = unique(data_crushed_inf_c$Temperature))
+
+predictions <- predict(Grap14, newdata = pred_data, type = "response", se.fit = TRUE)
+
+# prediction intervals
+pred_data$Probability <- predictions$fit
+pred_data$Lower_CI <- predictions$fit - 1.96 * predictions$se.fit
+pred_data$Upper_CI <- predictions$fit + 1.96 * predictions$se.fit
+
+# graph
+ggplot() +
+  geom_jitter(data = data_crushed_inf_c, aes(x = Temperature, y = grapes_n, color = as.factor(Temperature)), 
+              width = 0.3, height = 0.1, alpha = 0.5, size=3) +  
+  geom_line(data = pred_data, aes(x = as.numeric(Temperature), y = Probability), size = 1, group=1) +  
+  geom_ribbon(data = pred_data, aes(x = as.numeric(Temperature), ymin = Lower_CI, ymax = Upper_CI, group=1), 
+              alpha = 0.2, color = NA) +  # addCI
+  labs(
+    title = "Influence of the death age and the presence of grapes by Temperature",
+    x = "Temperature",
+    y = "Probability of grapes presence",
+    color = "Temperature (°C)",
+    fill = "Temperature (°C)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  ) +
+  scale_y_continuous(breaks = c(0, 1), labels = c("No", "Yes")) + 
+  scale_color_manual(values=c("chartreuse4", "darkorange", "darkred"))+
+  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred"))
+```
+
+### 5.3 Immature spores
+
+After grape seed formation, spores start their final maturation stage and start to develop their final shape. However, this is gradual and when an individual died we can observe partially maturated spores, which we called immature spores. Here we are interested to understand how their presence/absence is affected by the temperature and/or the genotype of the spores. We also investigated the potential impact of the variations in time post-exposure, as all screened individuals died at different time.
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+data_crushed_inf_c <- subset(infected, infected$imm_load!="not-well-counted" & infected$imm_load!="counted-after-freezer")
+data_crushed_inf_c$imm_presence <- ifelse(data_crushed_inf_c$imm >0, 1,0)
+
+ImmP <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature+Isolate+DeathAge, family = "binomial")
+ImmPR <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature+Isolate+DeathAge+ (1|Batch), family = "binomial")
+
+AICc(ImmP,ImmPR) # No need for random effect
+
+ImmP1 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature*Isolate*DeathAge, family = "binomial")
+ImmP2 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature+Isolate*DeathAge, family = "binomial")
+ImmP3 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature*Isolate+DeathAge, family = "binomial")
+ImmP4 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Isolate+DeathAge*Temperature, family = "binomial")
+
+ImmP5 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Isolate*DeathAge, family = "binomial")
+ImmP6 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature*Isolate, family = "binomial")
+ImmP7 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature*DeathAge, family = "binomial")
+
+ImmP8 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature+Isolate+DeathAge, family = "binomial")
+
+ImmP9 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Isolate+DeathAge, family = "binomial")
+ImmP10 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature+Isolate, family = "binomial")
+ImmP11 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature+DeathAge, family = "binomial")
+
+ImmP12 <- glmmTMB(data=data_crushed_inf_c, imm_presence~DeathAge, family = "binomial")
+ImmP13 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Isolate, family = "binomial")
+ImmP14 <- glmmTMB(data=data_crushed_inf_c, imm_presence~Temperature, family = "binomial")
+
+ImmP0 <- glmmTMB(data=data_crushed_inf_c, imm_presence~1, family = "binomial")
+
+AICc(ImmP1, ImmP2, ImmP3, ImmP4, ImmP5, ImmP6, ImmP7, ImmP8, ImmP9, ImmP10, ImmP11, ImmP12, ImmP13, ImmP14, ImmP0)
+
+tab_model(ImmP12, ImmP11, ImmP7, show.intercept = F)
+# Temperature increase the chances to observe imm_presence
+
+simulateResiduals(ImmP12, plot=T)
+
+summary(ImmP12)
+tab_model(ImmP12, show.intercept = F)
+```
+\
+We observed that only the time between exposure and death is increase of 13% the probability to observe immmature presence after host death, which is why we removed this abalysis from the main manuscript.
+
+#### Visualisation
+
+```{r, echo=F}
+# Create predictions
+age_seq <- seq(min(data_crushed_inf_c$DeathAge, na.rm = TRUE), 
+               max(data_crushed_inf_c$DeathAge, na.rm = TRUE), 
+               length.out = 100)
+pred_data <- expand.grid(DeathAge = age_seq)
+predictions <- predict(ImmP12, newdata = pred_data, type = "response", se.fit = TRUE)
+
+pred_data$Probability <- predictions$fit
+pred_data$Lower_CI <- predictions$fit - 1.96 * predictions$se.fit
+pred_data$Upper_CI <- predictions$fit + 1.96 * predictions$se.fit
+
+# Graphique
+ggplot() +
+  geom_jitter(data = data_crushed_inf_c, aes(x = DeathAge, y = imm_presence), color="#1B9909", 
+              width = 0.3, height = 0.1, alpha = 0.5, size=3) + 
+  geom_line(data = pred_data, aes(x = DeathAge, y = Probability), size = 1, group=1) + 
+  geom_ribbon(data = pred_data, aes(x = DeathAge, ymin = Lower_CI, ymax = Upper_CI, group=1), 
+              alpha = 0.2, color = NA) +  
+  labs(
+    title = "Influence of the death age and the presence of imm_presence by Temperature",
+    x = "Age at death (post-exposure)",
+    y = "Probability of immature spores presence"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  )
+```
+
+### 5.4 Mature spores
+
+Spores reach their final maturation stage and can now infect new hosts. We are interested to understand how the individual mature parasite load is affected by the temperature and/or the genotype of the spores. We also investigated the potential impact of the variations in time post-exposure, as all screened individuals died at different time.
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+data_mat <- subset(infected, infected$mature_load>0)
+data_mat$Temperature <- factor(data_mat$Temperature, ordered = F)
+
+mat1 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature*Isolate*DeathAge, family = "gaussian", REML=T)
+mat1R <- glmmTMB(data=data_mat, mature_load/10000000~Temperature*Isolate*DeathAge+(1|Batch), family = "gaussian", REML=T)
+
+AICc(mat1, mat1R) # No need of a batch effect
+
+mat2 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature+Isolate*DeathAge, family = "gaussian")
+mat3 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature*Isolate+DeathAge, family = "gaussian")
+mat4 <- glmmTMB(data=data_mat, mature_load/10000000~Isolate+DeathAge*Temperature, family = "gaussian")
+
+mat5 <- glmmTMB(data=data_mat, mature_load/10000000~Isolate*DeathAge, family = "gaussian")
+mat6 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature*Isolate, family = "gaussian")
+mat7 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature*DeathAge, family = "gaussian")
+
+mat8 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature+Isolate+DeathAge, family = "gaussian")
+
+mat9 <- glmmTMB(data=data_mat, mature_load/10000000~Isolate+DeathAge, family = "gaussian")
+mat10 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature+Isolate, family = "gaussian")
+mat11 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature+DeathAge, family = "gaussian")
+
+mat12 <- glmmTMB(data=data_mat, mature_load/10000000~DeathAge, family = "gaussian")
+mat13 <- glmmTMB(data=data_mat, mature_load/10000000~Isolate, family = "gaussian")
+mat14 <- glmmTMB(data=data_mat, mature_load/10000000~Temperature, family = "gaussian")
+
+mat0 <- glmmTMB(data=data_mat, mature_load/10000000~1, family = "gaussian")
+
+AICc(mat1, mat2, mat3, mat4, mat5, mat6, mat7, mat8, mat9, mat10, mat11, mat12, mat13, mat14, mat0)
+
+tab_model(mat9, mat5, show.intercept = F)
+
+simulateResiduals(mat5, plot=T)
+tab_model(mat5, show.intercept = F)
+```
+\
+C1 and C18 have significantly increased growth speed over time compared to C14 (référence) and C24.
+
+#### Visualisation
+
+```{r, echo=F, warning=FALSE}
+# Create a data frame with predictions
+temp_levels <- c(20, 30, 40)
+Isolate <- c("C14", "C1", "C18", "C24")
+deathage_seq <- seq(min(data_mat$DeathAge), max(data_mat$DeathAge), length.out = 100)
+
+pred_grid <- expand.grid(Temperature = temp_levels, DeathAge = deathage_seq, Isolate=Isolate)
+predictions <- predict(mat5, newdata = pred_grid, se.fit = TRUE)
+
+pred_grid$mature_load <- predictions$fit
+pred_grid$lower <- predictions$fit - 1.96 * predictions$se.fit
+pred_grid$upper <- predictions$fit + 1.96 * predictions$se.fit
+
+# Plot  
+a <- ggplot(pred_grid, aes(x = DeathAge, y = mature_load*10000000)) +
+  #geom_ribbon(aes(ymin = lower*10000000, ymax = upper*10000000, fill=Isolate), alpha = 0.1) +  # Confidence intervals with no contour
+  geom_point(data = data_mat, aes(x = DeathAge, y = mature_load,color=Isolate), size = 3, alpha = 0.8) +  # Real data points
+  #geom_line(size = 1.2, aes(color=Isolate)) +  # Predicted lines
+  #geom_smooth()+
+  scale_color_manual(values = lineage_colors) +  # Apply consistent colors to lines
+  scale_fill_manual(values = lineage_colors) +   # Apply consistent colors to ribbons
+  labs(
+    title = "mature spores number depending on death age and heatwaves",
+    x = "Death Age",
+    y = "number of mature spores)",
+    color = "Temperature (°C)",
+    fill = "Temperature (°C)"
+  )+
+  theme_minimal() +
+  facet_grid(cols=vars(Temperature))+
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.position = "top"
+  )
+a
+
+b <- ggplot(pred_grid, aes(x = DeathAge, y = mature_load*10000000)) +
+  geom_ribbon(aes(ymin = lower*10000000, ymax = upper*10000000, fill=Isolate), alpha = 0.14) +  # Confidence intervals with no contour
+  #geom_point(data = data_mat, aes(x = DeathAge, y = mature_load,color=Isolate), size = 3, alpha = 0.8) +  # Real data points
+  geom_line(size = 1.2, aes(color=Isolate)) +  # Predicted lines
+  #geom_smooth()+
+  scale_color_manual(values = lineage_colors) +  # Apply consistent colors to lines
+  scale_fill_manual(values = lineage_colors) +   # Apply consistent colors to ribbons
+  labs(
+    title = "mature spores number depending on death age and heatwaves",
+    x = "Death Age",
+    y = "number of mature spores)",
+    color = "Temperature (°C)",
+    fill = "Temperature (°C)"
+  )+
+  theme_minimal() +
+  #facet_grid(cols=vars(Temperature))+
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.position = "top"
+  )+
+  ylim(0,20000000)
+b
+```
+
+### 5.5 2nd cauliflowers
+
+Cauliflowers can also be obsevred if parasites restarts a second cycle inside the same host. Here we are interested to understand how their presence/absence is affected by the temperature and the genotype of the spores. We also investigated the potential impact of the variations in time post-exposure, as all screened individuals died at different time.
+
+```{r, echo=TRUE, warning=FALSE, message= FALSE}
+
+data_c2 <- subset(infected, infected$cauliflowers!="not-well-counted" & infected$cauliflowers!="counted-after-freezer"& infected$stade_max!="Cauliflower")
+
+data_c2$Temperature <- factor(data_c2$Temperature, ordered = T)
+
+Caul2 <- glmmTMB(data=data_c2, cauliflowers~Temperature*Isolate+DeathAge, family = "binomial")
+Caul2R <- glmmTMB(data=data_c2, cauliflowers~Temperature*Isolate+DeathAge + (1|Batch), family = "binomial", REML= T)
+
+AICc(Caul2, Caul2R)
+
+Caul2.1 <- glmmTMB(data=data_c2, cauliflowers~Temperature*Isolate*DeathAge, family = "binomial")
+
+Caul2.2 <- glmmTMB(data=data_c2, cauliflowers~Temperature+Isolate*DeathAge, family = "binomial")
+Caul2.3 <- glmmTMB(data=data_c2, cauliflowers~Temperature*Isolate+DeathAge, family = "binomial")
+Caul2.4 <- glmmTMB(data=data_c2, cauliflowers~Isolate+DeathAge*Temperature, family = "binomial")
+
+Caul2.5 <- glmmTMB(data=data_c2, cauliflowers~Isolate*DeathAge, family = "binomial")
+Caul2.6 <- glmmTMB(data=data_c2, cauliflowers~Temperature*Isolate, family = "binomial")
+Caul2.7 <- glmmTMB(data=data_c2, cauliflowers~DeathAge*Temperature, family = "binomial")
+
+Caul2.8 <- glmmTMB(data=data_c2, cauliflowers~Temperature+Isolate+DeathAge, family = "binomial")
+
+Caul2.9 <- glmmTMB(data=data_c2, cauliflowers~Isolate+DeathAge, family = "binomial")
+Caul2.10 <- glmmTMB(data=data_c2, cauliflowers~Temperature+Isolate, family = "binomial")
+Caul2.11 <- glmmTMB(data=data_c2, cauliflowers~DeathAge+Temperature, family = "binomial")
+
+Caul2.12 <- glmmTMB(data=data_c2, cauliflowers~DeathAge, family = "binomial")
+Caul2.13 <- glmmTMB(data=data_c2, cauliflowers~Isolate, family = "binomial")
+Caul2.14 <- glmmTMB(data=data_c2, cauliflowers~Temperature, family = "binomial")
+
+Caul2.0 <- glmmTMB(data=data_c2, cauliflowers~1, family = "binomial")
+
+AICc(Caul2.1, Caul2.2, Caul2.3, Caul2.4, Caul2.5, Caul2.6, Caul2.7, Caul2.8, Caul2.9, Caul2.10, Caul2.11, Caul2.12, Caul2.13, Caul2.14, Caul2.0)
+
+tab_model(Caul2.0, Caul2.13, Caul2.14, Caul2.10, Caul2.12,show.intercept = F)
+# No differences
+
+simulateResiduals(Caul2.13, plot=T)
+tab_model(Caul2.13, show.intercept = F)
+```
+\
+We observed that the null model is among the best ones and that the measured effect are relatively low, so we preffered the model taking into account the effect of the genotype on the second cauliflower formation, which seem more biologically relevant, however it should be interptreted with caution.
+
+#### Visualisation
+
+```{r, echo=F, warning=F}
+data_c2$caulif_n <- ifelse(data_c2$cauliflowers == "yes", 1, ifelse(data_c2$cauliflowers == "no", 0, NA))
+
+# Créer un cadre de données pour prédire les probabilités pour chaque combinaison de DeathAge et Temperature
+pred_data <- expand.grid(Isolate = unique(data_c2$Isolate)) 
+
+# Calculer les prédictions et les erreurs standard
+predictions <- predict(Caul2.13, newdata = pred_data, type = "response", se.fit = TRUE)
+
+# Ajouter les prédictions et les intervalles de confiance à pred_data
+pred_data$Probability <- predictions$fit
+pred_data$Lower_CI <- predictions$fit - 1.96 * predictions$se.fit
+pred_data$Upper_CI <- predictions$fit + 1.96 * predictions$se.fit
+
+# Créer le graphique avec les intervalles de confiance
+b <- ggplot() +
+  geom_jitter(data = data_c2, aes(x = Isolate, y = caulif_n, color = Isolate), 
+              width = 0.3, height = 0.1, alpha = 0.5, size=3) +  # Dispersion des points pour la visibilité
+  geom_point(data = pred_data, aes(x = Isolate, y = Probability), size = 1, group=1) +  # Courbes de prédiction
+  geom_errorbar(data = pred_data, aes(x = Isolate, ymin = Lower_CI, ymax = Upper_CI), width=0.2) +  # Ajouter les intervalles de confiance
+  labs(
+    title = "Influence of the death age and the presence of grapes by Temperature",
+    x = "Temperature",
+    y = "Probability of 2nd Cauliflowers presence",
+    color = "Temperature (°C)",
+    fill = "Temperature (°C)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  )+
+  #scale_y_continuous(breaks = c(0, 1), labels = c("No", "Yes")) + # Ajuster les étiqu
+  scale_color_manual(values=lineage_colors)+
+  scale_fill_manual(values=lineage_colors)
+b
+```
+\
+The isolate C18 is a little bit less likely to start a second cycle inside it's host thant the other lineages (66% less in average).
+
+### 5.6 Maximal stage reached
+
+The purpose of this section is to analyse the impact of temperature and parasite genytope on the maximal stage reached by the parasite at host death. We also included the impact of host age at death as each individuals died at different time post-exposure.
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+
+## Infected only
+infected <- subset(infected,stade_max!="None")
+infected$stade_max <- factor(infected$stade_max, ordered = T)
+infected$Temperature <- factor(infected$Temperature, ordered = T)
+infected$Batch <- factor(infected$Batch, ordered = F)
+
+#modele13 <- polr(stade_max ~ Temperature * Isolate * DeathAge, data = infected, Hess = TRUE)
+
+modele14 <- polr(stade_max ~ Temperature + Isolate + DeathAge, data = infected, Hess = TRUE)
+modele14R <- clmm(stade_max ~ Temperature + Isolate + DeathAge + (1 | Batch), data = infected)
+AICc(modele14R, modele14) #no need of random factor
+
+#modele1 <- polr(stade_max ~ Temperature + Isolate * DeathAge, data = infected, Hess = TRUE)
+modele2 <- polr(stade_max ~ Temperature * Isolate + DeathAge, data = infected, Hess = TRUE)
+modele3 <- polr(stade_max ~ Isolate +  DeathAge * Temperature, data = infected, Hess = TRUE)
+
+#modele4 <- polr(stade_max ~ Isolate * DeathAge, data = infected, Hess = TRUE)
+modele5 <- polr(stade_max ~ Temperature * Isolate, data = infected, Hess = TRUE)
+modele6 <- polr(stade_max ~ DeathAge * Temperature, data = infected, Hess = TRUE)
+
+modele7 <- polr(stade_max ~ Isolate + DeathAge, data = infected, Hess = TRUE)
+modele8 <- polr(stade_max ~ Temperature + Isolate, data = infected, Hess = TRUE)
+modele9 <- polr(stade_max ~ DeathAge + Temperature, data = infected, Hess = TRUE)
+
+modele10 <- polr(stade_max ~ Temperature, data = infected, Hess = TRUE)
+modele11 <- polr(stade_max ~ Isolate, data = infected, Hess = TRUE)
+modele12 <- polr(stade_max ~ DeathAge, data = infected, Hess = TRUE)
+
+modele0 <- polr(stade_max ~ 1, data = infected, Hess = TRUE)
+
+AICc(modele2,modele3,modele5,modele6,modele7,modele8,modele9,modele10,modele11,modele12,modele14,modele0)
+
+tab_model(modele14, modele3, modele9, modele6)
+
+# Predictions
+predicted <- predict(modele14, type = "probs")
+predicted_category <- colnames(predicted)[apply(predicted, 1, which.max)]
+
+# Conversion 
+observed_numeric <- as.numeric(infected$stade_max)
+# Residuals
+log_likelihood_resid <- -predicted[cbind(1:nrow(predicted), observed_numeric)]
+
+# Visualise residuals
+hist(log_likelihood_resid, 
+     main = "Histogramme des résidus de log-vraisemblance - Modèle 3", 
+     xlab = "Log-vraisemblance des résidus", 
+     breaks = 30)
+
+tab_model(modele14)
+```
+
+#### Visualisation
+
+```{r, echo=FALSE, warning=F}
+stade_summary <- infected %>%
+  group_by(Temperature, Isolate, stade_max) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+stade_summary <- stade_summary %>%
+  mutate(stade_max = factor(stade_max, levels = c("2nd_Cauliflower", "Mature","Immature", "Grapes", "Cauliflower", "None")))
+
+custom_palette <- c("#E78AC3", # 2nd caulif
+                    "#1DA0CB", # Mature
+                    "#1B9909", # Immature
+                    "#FC8D62",  # Grapes 
+                    "#8DA0CB",# Cauliflower (bleu)
+                    "#D3D3D3")  # None (gris clair à la place du rose)
+
+a <- ggplot(stade_summary, aes(x = Isolate, y = count, fill = stade_max)) +
+  geom_bar(stat = "identity", position = "fill", color = "white", size = 0.6) +
+  facet_wrap(~Temperature) +
+  coord_flip() +  
+  labs(
+    x = "Genotype per temperature",
+    y = "Proportions",
+    fill = "Maximal Stage Reached",
+    title = "Maximal Stage Observed for Each Group"
+  ) +
+  scale_fill_manual(values = custom_palette) +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1))
+a
+```
+\
+he quadratic effect of temperature (OR = 0.42, p = 0.006) indicates a non-linear relationship, where parasite maturation is optimal at intermediate temperatures (30°C) and decreases at both lower (20°C) and higher (40°C) extremes. At extreme temperatures, the odds of reaching a more advanced maturation stage decrease by 58%. 
+There is also a non significant trend of a less efficient maturation for C18, which is consistent with the previous analysis for the second stage cauliflower formation.
+
+##### Predicted composition per temperature
+
+```{r, echo=F, warning=FALSE}
+temperature_levels <- factor(c("20", "30", "40"), levels = c("20", "30", "40"), ordered = T)  # définir comme facteur
+isolates_levels <- c("C14", "C1", "C18", "C24")  # niveaux d'isolat
+deathage_mean <- mean(infected$DeathAge, na.rm = TRUE)  # moyenne de DeathAge
+
+pred_grid <- expand.grid(
+  Temperature = temperature_levels,
+  Isolate = isolates_levels,
+  DeathAge = deathage_mean
+)
+
+predicted_probs <- predict(modele14, newdata = pred_grid, type = "probs")
+
+predicted_probs_df <- cbind(pred_grid, predicted_probs) %>%
+  pivot_longer(
+    cols = c("Cauliflower", "Grapes", "Immature", "Mature", "2nd_Cauliflower"),
+    names_to = "stade_max",
+    values_to = "probability"
+  )
+
+
+predicted_probs_df <- predicted_probs_df %>%
+  mutate(stade_max = factor(stade_max, levels = c("2nd_Cauliflower", "Mature","Immature", "Grapes", "Cauliflower", "None")))
+
+custom_palette <- c("#E78AC3", # 2nd caulif
+                    "#1DA0CB", # Mature
+                    "#1B9909", # Immature
+                    "#FC8D62",  # Grapes 
+                    "#8DA0CB")  # None (gris clair à la place du rose)
+
+b <- ggplot(predicted_probs_df, aes(x = Isolate, y = probability, fill = stade_max)) +
+  geom_bar(stat = "identity", position = "fill", color = "white", size = 0.6) +
+  facet_wrap(~Temperature) +
+  coord_flip() +  #
+  labs(
+    x = "Genotype per temperature",
+    y = "Proportions",
+    fill = "Maximal Stage Reached",
+    title = "Maximal Stage Predicted for Each Group"
+  ) +
+  scale_fill_manual(values = custom_palette) + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1))
+b
+```
+
+
+### 6. Relationship between host castration and parasite fitness
+
+This is a supplementary analysis that we decided not to include as it would be out of the scope of our article.
+
+```{r, echo=TRUE, warning=FALSE, message=F}
+
+FC1 <- glmmTMB(data=data_mat, mature_load/100000 ~ Never_repro * Temperature + Isolate ,family= gaussian(), REML=T) 
+
+FC1R <- glmmTMB(data=data_mat, mature_load/100000 ~ Never_repro * Temperature + Isolate + (1|Batch), family= gaussian(), REML=T) 
+
+AICc(FC1, FC1R)
+data_mat$Nb_offspring <- !is.na(data_mat$Nb_offspring)
+
+FC1 <- glmmTMB(data=data_mat, mature_load/100000 ~ Never_repro * Temperature * Isolate * DeathAge,
+               family= gaussian(), na.action = na.fail)
+
+model_selection <- dredge(FC1)
+
+head(model_selection)
+
+best_model <- get.models(model_selection, 1)[[1]]
+
+models_within_2_AIC <- subset(model_selection, delta < 2)
+selected_models <- get.models(models_within_2_AIC, 1:nrow(models_within_2_AIC))
+
+summary(best_model)
+tab_model(best_model, show.intercept = F)
+simulateResiduals(best_model, plot=T)
+```
+\
+It seems that there is a possible slight positive impact of castration on parasite load. However, the effective in the different categories are really small.
+
+#### Visualisation
+
+```{r, echo=F, warning=FALSE}
+norme_reaction_data <- data[data$InfectedStatus == "infected", ] %>%
+  group_by(Never_repro, Isolate, Temperature) %>%
+  summarise(
+    n=n(),
+    mean_offspring = mean(Nb_offspring/(DeathAge)),
+    se_offspring = sd(Nb_offspring/(DeathAge), na.rm = TRUE) / sqrt(n()),
+    mean_parasite_fitness = mean(mature_load/(DeathAge), na.rm = TRUE),
+    se_parasite_fitness = sd(mature_load/(DeathAge), na.rm = TRUE) / sqrt(n())
+  )
+
+norme_reaction_data[] <- lapply(norme_reaction_data, function(x) {
+  if (is.numeric(x)) x[is.na(x)] <- 0
+  return(x)
+})
+
+cleaned_data <- norme_reaction_data[1:24,]
+
+norme_reaction_plot_fixed <- ggplot(cleaned_data, 
+                                    aes(x = mean_offspring, 
+                                        y = mean_parasite_fitness, 
+                                        fill = Isolate, 
+                                        color=Isolate,
+                                        group = Isolate)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 4, shape = 21) + 
+  #geom_smooth(method="lm", se=F)+
+  geom_errorbar(aes(ymin = mean_parasite_fitness - se_parasite_fitness, 
+                    ymax = mean_parasite_fitness + se_parasite_fitness), 
+                width = 0.02, size = 0.8) + 
+  facet_grid(cols = vars(Temperature)) +  
+  labs(title = "Relationship between host castration and parasite fitness", 
+       x = "Average number of offspring / Death age", 
+       y = "Parasite load / Death age", 
+       color = "Parasite genotype") +
+  scale_color_manual(values = lineage_colors) +  
+  scale_fill_manual(values = lineage_colors) +
+  theme_minimal() +  
+  theme(
+    legend.position = "top",  
+    legend.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),  
+    panel.grid.major = element_line(color = "gray80"),  
+    panel.grid.minor = element_blank()  
+  )
+
+print(norme_reaction_plot_fixed)
+```
+
+
+```{r, echo=F, warning=F}
+
+norme_reaction_data <- data[data$InfectedStatus == "infected", ] %>%
+  group_by(Never_repro, Isolate, Temperature) %>%
+  summarise(
+    n=n(),
+    mean_parasite_fitness = mean(mature_load/(DeathAge), na.rm = TRUE),
+    se_parasite_fitness = sd(mature_load/(DeathAge), na.rm = TRUE) / sqrt(n())
+  )
+norme_reaction_data <- norme_reaction_data[1:24,]
+
+cleaned_data <- norme_reaction_data %>%
+  filter(!is.na(Never_repro))
+
+norme_reaction_plot_fixed <- ggplot(cleaned_data, 
+                                    aes(x = as.factor(Never_repro), 
+                                        y = mean_parasite_fitness, 
+                                        fill = Isolate, 
+                                        color = Isolate, 
+                                        group = Isolate)) +
+  geom_line(size = 1.2, position = position_dodge(width = 0.2)) + 
+  geom_point(size = 4, shape = 21, position = position_dodge(width = 0.2)) + 
+  #geom_smooth(method="lm", se=F)+
+  geom_errorbar(aes(ymin = mean_parasite_fitness - se_parasite_fitness, 
+                    ymax = mean_parasite_fitness + se_parasite_fitness), 
+                width = 0.2, size = 0.8, position = position_dodge(width = 0.2)) + 
+  facet_grid(cols = vars(Temperature)) +  
+  labs(title = "Relationship between host castration and parasite fitness", 
+       x = "Host castration", 
+       y = "Parasite load / Death age", 
+       color = "Parasite genotype") +
+  scale_color_manual(values = lineage_colors) +  
+  scale_fill_manual(values = lineage_colors) +
+  theme_minimal() +  
+  theme(
+    legend.position = "top",  
+    legend.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),  
+    panel.grid.major = element_line(color = "gray80"),  
+    panel.grid.minor = element_blank() 
+  )
+
+print(norme_reaction_plot_fixed)
+```
