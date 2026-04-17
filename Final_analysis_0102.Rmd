@@ -97,7 +97,7 @@ Below is a detailed explanation of each column in the dataset. This breakdown is
 5. **Grouping and Batching**: Observations were assigned to batches for experimental grouping based on their ID. This enables batch effects to be tracked and controlled in downstream analysis.
 
 ```{r, echo=FALSE, warning=FALSE, message=F}
-setwd("/Users/justineboutry/Desktop/bordel/THESE/post-doct/Project tel aviv/Projects/Short experiment on clones/Measurement sheet/Experiment-1-backup")
+setwd("/Users/justineboutry/Desktop/Applications/CNRS-permanent-position/HeatwaveSpores")
 
 data = read_delim("Dataset.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE)
 data$Volume_counted = as.numeric(data$Volume_counted)
@@ -156,6 +156,7 @@ data         = droplevels(subset(data, Temperature != 'CTRL'))
 crushed      = droplevels(subset(data, InfectedStatus != "lost"))
 infected     = droplevels(subset(data, InfectedStatus == 'infected' & !is.na(Temperature)))
 not_infected = droplevels(subset(data, InfectedStatus == 'not_inf' & !is.na(Temperature)))
+Control      = droplevels(subset(dataC, Temperature == 'CTRL'))
 
 # correction dure to CTRL removal
 data$Temperature = factor(data$Temperature, ordered = TRUE)
@@ -421,6 +422,28 @@ ggplot(km_df_Ninf2, aes(x = time, y = surv, color = Temperature)) +
   #facet_wrap( ~ Isolate) +
   scale_color_manual(values=c("chartreuse4", "darkorange", "darkred"))+
   scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred"))+
+  theme_minimal() 
+
+surv_obj_ctrl <- Surv(time = Control$DeathAge, event = Control$statusDeath)
+km_fit_ctrl   <- survfit(surv_obj_ctrl ~ Temperature, data = Control)  # ~ 1 car une seule condition
+km_df_ctrl    <- surv_summary(km_fit_ctrl, data = Control)
+km_df_ctrl$Temperature <- "Unexposed control"
+
+km_df_combined <- rbind(
+  km_df_Ninf2[ , intersect(names(km_df_Ninf2), names(km_df_ctrl))],
+  km_df_ctrl[  , intersect(names(km_df_Ninf2), names(km_df_ctrl))]
+)
+
+ggplot(km_df_combined, aes(x = time, y = surv, color = Temperature)) +
+  geom_step(linetype=1, size=1) +
+  #geom_ribbon(aes(ymin = lower, ymax = upper, fill = Temperature), alpha = 0.2, color = NA) +  # Confidence intervals
+  labs(
+    x = "Age after infection",
+  ) +
+  ylim(0,1)+
+  #facet_wrap( ~ Isolate) +
+  scale_color_manual(values=c("chartreuse4", "darkorange", "darkred", "grey40"))+
+  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred","grey40"))+
   theme_minimal() 
 ```
 
