@@ -28,6 +28,8 @@ library(MASS)
 library(car)
 library(ordinal)
 library(brant)
+library(broom)
+library(ggplot2)
 ```
 \
 This supplementary R Markdown document provides the full analytical workflow and visual outputs referenced in the main manuscript "The legacy of past heatwaves on 'off-host' parasite stages: Reduced infection risk and costs in the Daphnia-Pasteuria system". All analyses were performed in R 4.4.2 (2024-10-31). The dataset and scripts are provided to ensure full reproducibility.
@@ -450,10 +452,15 @@ ggplot(km_df_combined, aes(x = time, y = surv, color = Temperature)) +
 ### 3.3 Exposed uninfected Daphnia (including unexposed husbandry control)
 
 ```{r, echo=F}
-dataC$group = as.factor(paste0(dataC$Isolate,dataC$Temperature))
 table(dataC$Isolate, dataC$Temperature)
-dataC$Temperature = factor(dataC$Temperature, levels = c("20", "30", "40"), ordered = TRUE)
-
+dataC$Temperature
+fit_km = survfit(surv_obj ~ Temperature, data = dataC)
+plot(fit_km, fun = "cloglog",
+     col = 1:ntemp,
+     lwd = 2,
+     xlab = "log(temps)", 
+     ylab = "log(-log(S(t)))",
+     main = "Log-log plot - Proportional Hazards check")
 ```
 
 We start first by running an analysis including the husbandry control along with the other genotype.
@@ -462,13 +469,8 @@ We start first by running an analysis including the husbandry control along with
 
 ```{r, echo=T}
 table(dataC$Isolate, dataC$Temperature)
+dataC$Temperature = factor(dataC$Temperature, levels = c("CTRL", 20, 30, 40), ordered = F)
 surv_obj = Surv(time = dataC$DeathAge, event = dataC$statusDeath)
-
-fit_cox_5 = coxph(surv_obj ~  Temperature + Isolate, data = dataC)
-fit_cox_5R = coxme(surv_obj ~  Temperature + Isolate + (1|Batch), data = dataC) 
-# Cannot evaluate the interaction as the unexposed individuals do not have a heatwave condition (no spores)
-
-AICc(fit_cox_5, fit_cox_5R) # No random effect
 
 fit_cox_1 = coxph(surv_obj ~ 1, data = dataC)
 fit_cox_2 = coxph(surv_obj ~ Temperature, data = dataC)
@@ -481,135 +483,83 @@ AICc(fit_cox_1,fit_cox_2,fit_cox_3,fit_cox_4)
 test_ph = cox.zph(fit_cox_2)
 test_ph
 
-plot(test_ph) # Not the best. fit
-
-### Weibull approach to compare results
-fit_weibull1 = survreg(surv_obj ~ 1 , data = dataC, dist = "weibull")
-fit_weibull2 = survreg(surv_obj ~ Temperature, data = dataC, dist = "weibull")
-fit_weibull3 = survreg(surv_obj ~ Isolate, data = dataC, dist = "weibull")
-fit_weibull4 = survreg(surv_obj ~ Isolate + Temperature, data = dataC, dist = "weibull")
-fit_weibull5 = survreg(surv_obj ~ Isolate * Temperature, data = dataC, dist = "weibull")
-AICc(fit_weibull1,fit_weibull2,fit_weibull3,fit_weibull4,fit_weibull5)
-# Standardi@zed residuals plot
-residuals_std = residuals(fit_weibull2, type = "matrix")
-qqnorm(residuals_std)
-qqline(residuals_std, col = "red")
-
-summary(fit_weibull2) # not much much better, but sit's also because the factor are not equilibrated as the design is not meant to test those hypothesese.
-
 summary(fit_cox_2)
 ```
-Secondly, we analysed the survival of uninfected Daphnias only at 20°C, as this is a condition were the spores endured no heatwave, like our husbandry controls.
 
-```{r, echo=F}
-dataC20 = subset(dataC, Temperature==20)
-dataC20$Isolate = factor(dataC20$Isolate, levels= c("unexposed","C1","C14", "C18","C24"), ordered = F)
+\
+We can see that the main effect explaining survival variation is still temperature, with a significant decrease in mortality risk at higher temperatures (p = 0.002). The hazard ratio indicates a 39.4% reduction in mortality risk per temperature unit increase (HR = 0.606). This suggests that even when including the husbandry control, temperature remains a key factor influencing survival outcomes in exposed uninfected Daphnia.
 
-table(dataC20$Isolate)
+```{r, echo=T}
+table(dataC$Isolate, dataC$Temperature)
+dataC$group <- factor(
+  paste0(dataC$Isolate, dataC$Temperature),
+  levels = c("CTRLCTRL","C120","C130","C140","C1420","C1430","C1440","C1820","C1830","C1840","C2420","C2430","C2440"),
+  ordered = FALSE
+)
+table(dataC$group, dataC$DeathAge)
 
-surv_obj = Surv(time = dataC20$DeathAge, event = dataC20$statusDeath) 
-fit_cox_5 = coxph(surv_obj ~ Isolate, data = dataC20)
-fit_cox_5R = coxme(surv_obj ~ Isolate + (1|Batch), data = dataC20) 
+surv_obj = Surv(time = dataC$DeathAge, event = dataC$statusDeath)
 
-AICc(fit_cox_5, fit_cox_5R) # No random effect 
-
-fit_cox_1 = coxph(surv_obj ~ 1, data = dataC20)
-fit_cox_2 = coxph(surv_obj ~ Isolate, data = dataC20)
-
-AICc(fit_cox_1,fit_cox_2) # nul model is better
-
-summary(fit_cox_1)# not the best model, just to see
+fit_cox_1 = coxph(surv_obj ~ 1, data = dataC)
+fit_cox_2 = coxph(surv_obj ~ group, data = dataC)
 
 ### Test assumptions of proportional hazards
 test_ph = cox.zph(fit_cox_2)
 test_ph
-plot(test_ph) # Not the best. fit
 
-fit_weibull1 = survreg(surv_obj ~ 1, data = dataC20, dist = "weibull")
-fit_weibull2 = survreg(surv_obj ~ Isolate, data = dataC20, dist = "weibull")
-
-AICc(fit_weibull1,fit_weibull2) # null model is better
-
-test_weibull2 = residuals(fit_weibull2, type = "matrix")
-qqnorm(test_weibull2)
-qqline(test_weibull2, col = "red")
-
-fit_exp = survreg(surv_obj ~ Isolate, data = dataC20, dist = "exponential")
-fit_loglog = survreg(surv_obj ~ Isolate, data = dataC20, dist = "loglogistic")
-fit_lognorm = survreg(surv_obj ~ Isolate, data = dataC20, dist = "lognormal")
-fit_gauss = survreg(surv_obj ~ Isolate, data = dataC20, dist = "gaussian")
-
-AICc(fit_weibull2, fit_exp, fit_loglog, fit_lognorm, fit_gauss)
-qqnorm(residuals(fit_lognorm))
-qqline(residuals(fit_lognorm), col = "red")
-
-# Diagnostic
-fit_km = survfit(surv_obj ~ Isolate, data = dataC)
-plot(fit_km, col = 1:13, xlab = "Age", ylab = "Survie")
-legend("topright", levels(dataC20$Isolate), col = 1:13, lty = 1)
-plot(fit_km, fun = "cloglog", col = 1:13)
-
-library(survminer)
-
-# Test global d'abord
-pw_test = pairwise_survdiff(Surv(DeathAge, statusDeath) ~ group, 
-                             data = dataC,
-                             p.adjust.method = "BH")
-pw_test
-print(pw_test$p.value["CTRLCTRL",])
-
+summary(fit_cox_2)
 ```
 
-\
-We can see that there is no significant difference between the model comparing the survival of each spore lineage (including the group without spores) and the null model. So it seem than at 20°C, in stable conditions, the exposure to dead Daphnias or to spores from different genotype influence similarly the survival of non infected individuals, however we can not than the effective in those categories are sometimes desequilibrated. I doubt of the relevancy of this analysis.
-
-#### Comparision between groups, without factorial modeling
-```{r, echo=F}
-
-dataC$group = factor(dataC$group, levels= c("unexposed20","C120","C130","C140","C1420","C1430","C1440","C1820","C1830","C1840",
-"C2420","C2430","C2440"), ordered = F)
-levels(dataC$group)
-
-surv_obj = Surv(time = dataC$DeathAge, event = dataC$statusDeath)  
-
-fit_weibull1 = survreg(surv_obj ~ 1, data = dataC, dist = "weibull")
-fit_weibull2 = survreg(surv_obj ~ group, data = dataC, dist = "weibull")
-
-AICc(fit_weibull1,fit_weibull2) # null model is better
-
-test_weibull2 = residuals(fit_weibull2, type = "matrix")
-qqnorm(test_weibull2)
-qqline(test_weibull2, col = "red")
-
-pw_test = pairwise_survdiff(Surv(DeathAge, statusDeath) ~ group, 
-                             data = dataC,
-                             p.adjust.method = "BH")
-pw_test
-
-dataC[dataC$group == "C130",]
-```
-
-#### Visualisation
+#### Visualisation of comparisions between the husbandry control and the other groups
 
 ```{r, echo=FALSE}
-surv_obj_Ninf = Surv(time = dataC$DeathAge, event = dataC$statusDeath)
-km_fit_Ninf2 = survfit(surv_obj_Ninf ~ Temperature+Isolate, data = dataC)
-km_df_Ninf2 = surv_summary(km_fit_Ninf2, data = dataC)
+library(broom)
+library(ggplot2)
 
-ggplot(km_df_Ninf2, aes(x = time, y = surv, color = Isolate)) +
-  geom_step(linetype=1, size=1) +
-  facet_grid(cols=vars(Temperature))+
-  #geom_ribbon(aes(ymin = lower, ymax = upper, fill = Temperature), alpha = 0.2, color = NA) +  # Confidence intervals
+# Extraire les noms de groupes du modèle (sauf l'intercept)
+cox_df <- broom::tidy(fit_cox_2, exponentiate = TRUE, conf.int = TRUE)
+cox_df$term <- gsub("^group", "", cox_df$term)
+
+# Ajoute la colonne de significativité à plusieurs niveaux
+
+# Découpage correct des p-values et labels cohérents
+cox_df$signif <- cut(cox_df$p.value,
+                     breaks = c(-Inf, 0.051, 0.08, Inf),
+                     labels = c("p < 0.051", "p < 0.08", "ns"))
+
+# Compte les effectifs par groupe
+group_counts <- as.data.frame(table(dataC$group))
+colnames(group_counts) <- c("term", "n")
+
+# Fusionne proprement
+cox_df <- merge(cox_df, group_counts, by = "term", all.x = TRUE)
+
+# Crée le label
+cox_df$label <- paste0(cox_df$term, " (n=", cox_df$n, ")")
+
+ggplot(cox_df, aes(y = label, x = estimate, xmin = conf.low, xmax = conf.high, color = signif)) +
+  geom_point(size = 6) +
+  geom_errorbarh(height = 0.2) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  scale_x_log10() +
+  scale_color_manual(values = c(
+    "p < 0.051" = "#a50026",   # dark red
+    "p < 0.08" = "#e66101",    # dark orange
+    "ns" = "#4575b4"           # blue
+  )) +
   labs(
-    x = "Age after infection",
-    y = "Survival probability",
-    title = "Increase survival from Heat-Stressed Spores in Exposed\nNot Infected Daphnia"
+    title = "Hazard ratios and significance for each group vs control",
+    subtitle = "Control group (CTRLCTRL) contains 27 individuals",
+    x = "Hazard Ratio (log scale)",
+    y = "Group (vs control)",
+    color = "Significance"
   ) +
-  ylim(0,1)+
-  scale_color_manual(values=c("blue", "purple","turquoise", "red","black"), labels = c("C1", "C14", "C18", "24", "Unexposed daphnias"))+
-#  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred", "darkgrey"))+
-  theme_minimal()
-
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 16),
+    plot.title = element_text(size = 22, face = "bold"),
+    plot.subtitle = element_text(size = 16)
+  )
 ```
 \
 
@@ -617,7 +567,7 @@ In conclusion, when we included the husbandry control in our analysis, comparing
 
 ## 4. Host reproduction
 
-In this section we explored how the exposure and the infection by heat-stressed parasites affected the host reproduction. First we evaluated the number of individuals fully castrated in exposed uninfected and in infected Daphnias. This divisions into two sub analysis helped us to find more adapted models to describe the host reproductive patern. 
+In this section we explored how the exposure and the infection by heat-stressed parasites affected the host reproduction. First we evaluated the number of individuals fully castrated in exposed uninfected and in infected Daphnia. This divisions into two sub analysis helped us to find more adapted models to describe the host reproductive patern. 
 
 ### 4.1 Full castration
 
@@ -910,10 +860,6 @@ FC1 = glmmTMB(Nb_offspring ~ Isolate * Temperature + DeathAge + (1|Batch), data 
 model_selection = dredge(FC1)
 
 model_selection
-
-models_within_2_AIC = subset(model_selection, delta < 2)
-selected_models = get.models(models_within_2_AIC, 1:nrow(models_within_2_AIC))
-selected_models
 
 best_model = get.models(model_selection, 1)[[1]]
 simulateResiduals(best_model, plot=T)
@@ -1249,7 +1195,7 @@ pred_data$Upper_CI = predictions$fit + 1.96 * predictions$se.fit
 # graph
 ggplot() +
   geom_jitter(data = data_crushed_inf_c, aes(x = Temperature, y = grapes_n, color = as.factor(Temperature)), 
-              width = 0.3, height = 0.1, alpha = 0.5, size=3) +  
+              width = 0.3, height = 0.1, alpha =   0.5, size=3) +  
   geom_line(data = pred_data, aes(x = as.numeric(Temperature), y = Probability), size = 1, group=1) +  
   geom_ribbon(data = pred_data, aes(x = as.numeric(Temperature), ymin = Lower_CI, ymax = Upper_CI, group=1), 
               alpha = 0.2, color = NA) +  # addCI
@@ -1682,7 +1628,8 @@ custom_palette = c("#E78AC3", # 2nd caulif
                     "#1DA0CB", # Mature
                     "#1B9909", # Immature
                     "#FC8D62",  # Grapes 
-                    "#8DA0CB")  # None (gris clair à la place du rose)
+                    "#8DA0CB",# Cauliflower (bleu)
+                    "#D3D3D3")  # None (gris clair à la place du rose)
 
 b = ggplot(predicted_probs_df, aes(x = Isolate, y = probability, fill = stage_max)) +
   geom_bar(stat = "identity", position = "fill", color = "white", size = 0.6) +
