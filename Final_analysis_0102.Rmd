@@ -112,7 +112,7 @@ data = data %>%
         `Number of immature spores` = ifelse(is.na(`Number of imature spores`), 0, `Number of imature spores`),
         `Number of mature spores` = ifelse(is.na(`Number of mature spores`), 0, `Number of mature spores`))
 
-data$Isolate = factor(data$Isolate, levels = c("C14", "C1", "C18", "C24"), ordered = FALSE)
+data$Isolate = factor(data$Isolate, levels = c("CTRL","C14", "C1", "C18", "C24"), ordered = FALSE)
 data$Temperature = factor(data$Temperature, levels = c("CTRL",20, 30, 40), ordered = TRUE)
 data$Never_repro = ifelse(is.na(data$Clutch), 1, 0)
 
@@ -152,7 +152,7 @@ data$stade_max = factor(data$stade_max, levels=c("None","Cauliflower","Grapes", 
 
 # Subseting
 dataC        = droplevels(subset(data, InfectedStatus != 'infected'))# non-infected with unexposed daphnias
-data         = droplevels(subset(data, Temperature != 'CTRL'))
+data         = droplevels(subset(data, Temperature != 'CTRL')) # removing unexposed daphnias for the main analysis
 crushed      = droplevels(subset(data, InfectedStatus != "lost"))
 infected     = droplevels(subset(data, InfectedStatus == 'infected' & !is.na(Temperature)))
 not_infected = droplevels(subset(data, InfectedStatus == 'not_inf' & !is.na(Temperature)))
@@ -451,15 +451,7 @@ ggplot(km_df_combined, aes(x = time, y = surv, color = Temperature)) +
 
 ```{r, echo=F}
 dataC$group = as.factor(paste0(dataC$Isolate,dataC$Temperature))
-dataC$Temperature[dataC$Temperature == "CTRL"] = "20"
-dataC$Temperature = droplevels(dataC$Temperature)
-
-dataC$Isolate = as.character(dataC$Isolate)
-dataC$Isolate[is.na(dataC$Isolate)] = "CTRL"
-dataC$Isolate = as.factor(dataC$Isolate)
-
-summary(dataC$Isolate)
-
+table(dataC$Isolate, dataC$Temperature)
 dataC$Temperature = factor(dataC$Temperature, levels = c("20", "30", "40"), ordered = TRUE)
 
 ```
@@ -469,6 +461,7 @@ We start first by running an analysis including the husbandry control along with
 *Warning!* It is important to note that under these conditions it is not possible to test the interaction between heatwave temperature and the absence of spores, as our husbandry controls were infected with crushed Daphnia bodies that did not experience any heatwaves.
 
 ```{r, echo=T}
+table(dataC$Isolate, dataC$Temperature)
 surv_obj = Surv(time = dataC$DeathAge, event = dataC$statusDeath)
 
 fit_cox_5 = coxph(surv_obj ~  Temperature + Isolate, data = dataC)
@@ -510,10 +503,11 @@ Secondly, we analysed the survival of uninfected Daphnias only at 20°C, as this
 
 ```{r, echo=F}
 dataC20 = subset(dataC, Temperature==20)
-dataC20$Isolate = factor(dataC20$Isolate, levels= c("CTRL","C1","C14", "C18","C24"), ordered = F)
+dataC20$Isolate = factor(dataC20$Isolate, levels= c("unexposed","C1","C14", "C18","C24"), ordered = F)
 
-surv_obj = Surv(time = dataC20$DeathAge, event = dataC20$statusDeath)
+table(dataC20$Isolate)
 
+surv_obj = Surv(time = dataC20$DeathAge, event = dataC20$statusDeath) 
 fit_cox_5 = coxph(surv_obj ~ Isolate, data = dataC20)
 fit_cox_5R = coxme(surv_obj ~ Isolate + (1|Batch), data = dataC20) 
 
@@ -524,15 +518,76 @@ fit_cox_2 = coxph(surv_obj ~ Isolate, data = dataC20)
 
 AICc(fit_cox_1,fit_cox_2) # nul model is better
 
-summary(fit_cox_2)# not the best model, just to see
+summary(fit_cox_1)# not the best model, just to see
+
 ### Test assumptions of proportional hazards
 test_ph = cox.zph(fit_cox_2)
 test_ph
 plot(test_ph) # Not the best. fit
+
+fit_weibull1 = survreg(surv_obj ~ 1, data = dataC20, dist = "weibull")
+fit_weibull2 = survreg(surv_obj ~ Isolate, data = dataC20, dist = "weibull")
+
+AICc(fit_weibull1,fit_weibull2) # null model is better
+
+test_weibull2 = residuals(fit_weibull2, type = "matrix")
+qqnorm(test_weibull2)
+qqline(test_weibull2, col = "red")
+
+fit_exp = survreg(surv_obj ~ Isolate, data = dataC20, dist = "exponential")
+fit_loglog = survreg(surv_obj ~ Isolate, data = dataC20, dist = "loglogistic")
+fit_lognorm = survreg(surv_obj ~ Isolate, data = dataC20, dist = "lognormal")
+fit_gauss = survreg(surv_obj ~ Isolate, data = dataC20, dist = "gaussian")
+
+AICc(fit_weibull2, fit_exp, fit_loglog, fit_lognorm, fit_gauss)
+qqnorm(residuals(fit_lognorm))
+qqline(residuals(fit_lognorm), col = "red")
+
+# Diagnostic
+fit_km = survfit(surv_obj ~ Isolate, data = dataC)
+plot(fit_km, col = 1:13, xlab = "Age", ylab = "Survie")
+legend("topright", levels(dataC20$Isolate), col = 1:13, lty = 1)
+plot(fit_km, fun = "cloglog", col = 1:13)
+
+library(survminer)
+
+# Test global d'abord
+pw_test = pairwise_survdiff(Surv(DeathAge, statusDeath) ~ group, 
+                             data = dataC,
+                             p.adjust.method = "BH")
+pw_test
+print(pw_test$p.value["CTRLCTRL",])
+
 ```
 
 \
-We can see that there is no significant difference between the model comparing the survival of each spore lineage (including the group without spores) and the null model. So it seem than at 20°C, in stable conditions, the exposure to dead Daphnias or to spores from different genotype influence similarly the survival of non infected individuals.
+We can see that there is no significant difference between the model comparing the survival of each spore lineage (including the group without spores) and the null model. So it seem than at 20°C, in stable conditions, the exposure to dead Daphnias or to spores from different genotype influence similarly the survival of non infected individuals, however we can not than the effective in those categories are sometimes desequilibrated. I doubt of the relevancy of this analysis.
+
+#### Comparision between groups, without factorial modeling
+```{r, echo=F}
+
+dataC$group = factor(dataC$group, levels= c("unexposed20","C120","C130","C140","C1420","C1430","C1440","C1820","C1830","C1840",
+"C2420","C2430","C2440"), ordered = F)
+levels(dataC$group)
+
+surv_obj = Surv(time = dataC$DeathAge, event = dataC$statusDeath)  
+
+fit_weibull1 = survreg(surv_obj ~ 1, data = dataC, dist = "weibull")
+fit_weibull2 = survreg(surv_obj ~ group, data = dataC, dist = "weibull")
+
+AICc(fit_weibull1,fit_weibull2) # null model is better
+
+test_weibull2 = residuals(fit_weibull2, type = "matrix")
+qqnorm(test_weibull2)
+qqline(test_weibull2, col = "red")
+
+pw_test = pairwise_survdiff(Surv(DeathAge, statusDeath) ~ group, 
+                             data = dataC,
+                             p.adjust.method = "BH")
+pw_test
+
+dataC[dataC$group == "C130",]
+```
 
 #### Visualisation
 
@@ -553,7 +608,7 @@ ggplot(km_df_Ninf2, aes(x = time, y = surv, color = Isolate)) +
   ylim(0,1)+
   scale_color_manual(values=c("blue", "purple","turquoise", "red","black"), labels = c("C1", "C14", "C18", "24", "Unexposed daphnias"))+
 #  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred", "darkgrey"))+
-  theme_minimal() 
+  theme_minimal()
 
 ```
 \
@@ -918,13 +973,11 @@ dataC$Isolate = as.character(dataC$Isolate)
 dataC$Isolate[is.na(dataC$Isolate)] = "unexposed"
 dataC$Isolate = as.factor(dataC$Isolate)
 
-dataC$Temperature = as.character(dataC$Temperature)
-dataC$Temperature[dataC$Temperature == "CTRL"] = 20
-dataC$Temperature = factor(dataC$Temperature, ordered = TRUE)
-
 repro_nfC = subset(dataC, dataC$Clutch>0 & InfectedStatus!="inf")
 
 repro_nfC$Temperature = factor(repro_nfC$Temperature, labels = c("20", "30","40"), ordered = T)
+
+table(dataC$Isolate)
 
 FC1 = glmmTMB(data=repro_nfC, Nb_offspring ~ Isolate + Temperature + DeathAge, family = "gaussian", REML=F)
 #FC1 = glmmTMB(data=repro_nf, Nb_offspring ~ Isolate + Temperature+ DeathAge, family = "poisson", REML=F)
@@ -945,7 +998,7 @@ model_selection
 best_model = get.models(model_selection, 1)[[1]]
 simulateResiduals(best_model, plot=T)
 
-selected_models = get.models(model_selection, 1:nrow(model_selection))
+selected_models = get.models(model_selection, 1)
 tab_model(selected_models, show.intercept = F) # No effect
 summary(best_model)
 ```
