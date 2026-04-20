@@ -677,10 +677,6 @@ p1
 
 ```{r, echo=TRUE, warning=FALSE, message=F}
 options(na.action = "na.fail")
-summary(dataC_ninf)
-
-dataC$Never_repro
-
 FC1 = glmmTMB(data=dataC, Never_repro~ Isolate + Temperature + DeathAge, family = "binomial", REML=T)
 FC1R = glmmTMB(data=dataC, Never_repro ~ Isolate + Temperature+ DeathAge + (1|Batch), family = "binomial", REML=T)
 
