@@ -48,6 +48,8 @@ Below is a detailed explanation of each column in the dataset. This breakdown is
 
 - **Isolate**: Identifier for the specific parasite genotype used in the experiment (e.g. C1, C14, C18, C24). Each genotype represents a distinct biological strain or lineage of the parasite.
 
+n.b : For both Temperature and Isolate, the 'CTRL' category represents unexposed control samples that were not subjected to the experimental conditions and served as husbandry controls.
+
 - **Clutch**: The number of clutch events recorded for each sample, representing reproductive events or cycles.
 
 - **Nb_offspring**: The total number of offspring produced by each sample across clutch events.
@@ -160,7 +162,7 @@ infected     = droplevels(subset(data, InfectedStatus == 'infected' & !is.na(Tem
 not_infected = droplevels(subset(data, InfectedStatus == 'not_inf' & !is.na(Temperature)))
 Control      = droplevels(subset(dataC, Temperature == 'CTRL'))
 
-# correction dure to CTRL removal
+# correction due to CTRL removal
 data$Temperature = factor(data$Temperature, ordered = TRUE)
 crushed$Temperature = factor(crushed$Temperature, ordered = TRUE)
 infected$Temperature = factor(infected$Temperature, ordered = TRUE)
@@ -240,8 +242,6 @@ global_trend = crushed %>%
     n_infected = sum(InfectedStatus == "infected", na.rm = TRUE),
     n_total = n(),
     proportion_infected = n_infected / n_total,
-    
-    # Confidence intervals for infection proportions
     prop_test = list(prop.test(n_infected, n_total, correct = FALSE)),
     lower_ci = prop_test[[1]]$conf.int[1],
     upper_ci = prop_test[[1]]$conf.int[2]
@@ -259,7 +259,6 @@ gg_temperature = ggplot() +
        x = "Temperature",
        y = "Probability of Infection") +
   theme_minimal(base_size = 14) +
-  #scale_color_viridis_d(option = "inferno")+
   scale_color_manual(values = lineage_colors, name = "Parasite Strain") +
   theme(legend.position = "right", 
         plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
@@ -416,12 +415,10 @@ km_df_Ninf2 = surv_summary(km_fit_Ninf2, data = not_infected)
 
 ggplot(km_df_Ninf2, aes(x = time, y = surv, color = Temperature)) +
   geom_step(linetype=1, size=1) +
-  #geom_ribbon(aes(ymin = lower, ymax = upper, fill = Temperature), alpha = 0.2, color = NA) +  # Confidence intervals
   labs(
     x = "Age after infection",
   ) +
   ylim(0,1)+
-  #facet_wrap( ~ Isolate) +
   scale_color_manual(values=c("chartreuse4", "darkorange", "darkred"))+
   scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred"))+
   theme_minimal() 
@@ -517,25 +514,19 @@ summary(fit_cox_2)
 ##### Visualisation of comparisions between the husbandry control and the other groups
 
 ```{r, echo=FALSE}
-# Extraire les noms de groupes du modèle (sauf l'intercept)
+
 cox_df <- broom::tidy(fit_cox_2, exponentiate = TRUE, conf.int = TRUE)
 cox_df$term <- gsub("^group", "", cox_df$term)
 
-# Ajoute la colonne de significativité à plusieurs niveaux
-
-# Découpage correct des p-values et labels cohérents
 cox_df$signif <- cut(cox_df$p.value,
                      breaks = c(-Inf, 0.051, 0.08, Inf),
                      labels = c("p < 0.051", "p < 0.08", "ns"))
 
-# Compte les effectifs par groupe
+
 group_counts <- as.data.frame(table(dataC$group))
 colnames(group_counts) <- c("term", "n")
 
-# Fusionne proprement
 cox_df <- merge(cox_df, group_counts, by = "term", all.x = TRUE)
-
-# Crée le label
 cox_df$label <- paste0(cox_df$term, " (n=", cox_df$n, ")")
 
 ggplot(cox_df, aes(y = label, x = estimate, xmin = conf.low, xmax = conf.high, color = signif)) +
@@ -606,16 +597,16 @@ tab_model(best_model, show.intercept = F)
 data_cat_summary_inf = infected %>%
   group_by(Temperature, Isolate) %>%
   summarise(
-    Proportion = mean(Never_repro),  # Calcul de la proportion moyenne
-    n = n(),  # Taille de l'échantillon
-    Error = sqrt((Proportion * (1 - Proportion)) / n),  # Erreur standard pour une proportion
+    Proportion = mean(Never_repro),  
+    n = n(),  
+    Error = sqrt((Proportion * (1 - Proportion)) / n),  
     AgeDeath= mean(DeathAge)
   )
 
 p1 = ggplot(data_cat_summary_inf, aes(x = Temperature, y = Proportion, fill = Isolate)) +
-  geom_bar(stat = "identity", position = "dodge", color = "black", alpha=.8) +  # Barres côte à côte
+  geom_bar(stat = "identity", position = "dodge", color = "black", alpha=.8) + 
   geom_errorbar(aes(ymin = Proportion - Error, ymax = Proportion + Error), 
-                position = position_dodge(0.9), width = 0.25) +  # Barres d'erreur
+                position = position_dodge(0.9), width = 0.25) +  
   labs(title = "Fully castrated infected Daphnia", x = "Temperature", y = "Proportion") +
   scale_fill_manual(values = lineage_colors, name = "Parasite Strain") +
   theme_minimal()
@@ -751,17 +742,18 @@ In this section we were interested in understanding the role of parasite heat-st
 repro_inf = subset(data, data$Clutch>0 & InfectedStatus=="infected" & Temperature!="NA")
 repro_inf$Temperature = factor(repro_inf$Temperature, ordered = T)
 
-FC1 = glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge, family = "nbinom2", REML=T)
+#FC1 = glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge, family = "nbinom2", REML=T)
 #FC1 = glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge, family = "poisson", REML=T)
 #FC1 = glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge, family = "gaussian", REML=T)
+FC1 = glmmTMB(data = repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge, family = truncated_nbinom2, REML = T)
 
 simulateResiduals(FC1, plot=T)
 
-FC1R = glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge + (1|Batch), family = "nbinom2", REML=T)
+FC1R = glmmTMB(data=repro_inf, Nb_offspring ~ Isolate + Temperature + DeathAge + (1|Batch), family = truncated_nbinom2, REML=T)
 AICc(FC1, FC1R)# no batch effect
 
 FC1 = glmmTMB(Nb_offspring ~ Isolate * Temperature + DeathAge  , 
-                data = repro_inf, family = "nbinom2", na.action = na.fail)
+                data = repro_inf, family = truncated_nbinom2, na.action = na.fail)
 model_selection = dredge(FC1)
 
 model_selection
@@ -851,13 +843,16 @@ FC1 = glmmTMB(data=repro_nf, Nb_offspring ~ Isolate * Temperature + DeathAge+ (1
 #FC1 = glmmTMB(data=repro_nf, Nb_offspring ~ Isolate * Temperature+ DeathAge + (1|Batch), family = "poisson")
 #FC1 = glmmTMB(data=repro_nf, Nb_offspring ~ Isolate * Temperature + DeathAge+ (1|Batch), family = "nbinom2", REML=T)
 #FC1 = glmmTMB(data=repro_nf, log(Nb_offspring) ~ Isolate * Temperature + DeathAge + (1|Batch), family = "gaussian", REML=T)
+#FC1 = glmmTMB(data=repro_nf, Nb_offspring ~ Isolate * Temperature + DeathAge+ (1|Batch), family = truncated_nbinom1, REML=T)
+
+simulateResiduals(FC1, plot=T)
 
 FC1R = glmmTMB(data=repro_nf, Nb_offspring ~ Isolate + Temperature + DeathAge  + (1|Batch), family = "gaussian", REML=F)
 FC1 = glmmTMB(Nb_offspring ~ Isolate + Temperature + DeathAge, data = repro_nf, family = "gaussian", REML=F)
 
 AICc(FC1, FC1R)# Batch effect NOT important! But significantly improved the residuals
 
-FC1 = glmmTMB(Nb_offspring ~ Isolate * Temperature + DeathAge + (1|Batch), data = repro_nf, family = "gaussian", na.action = na.fail)
+FC1 = glmmTMB(Nb_offspring ~ Isolate * Temperature + DeathAge, data = repro_nf, family = "gaussian", na.action = na.fail)
 model_selection = dredge(FC1)
 
 model_selection
@@ -1426,23 +1421,17 @@ We observed that the null model is among the best ones and that the measured eff
 ```{r, echo=F, warning=F}
 data_c2$caulif_n = ifelse(data_c2$cauliflowers == "yes", 1, ifelse(data_c2$cauliflowers == "no", 0, NA))
 
-# Créer un cadre de données pour prédire les probabilités pour chaque combinaison de DeathAge et Temperature
 pred_data = expand.grid(Isolate = unique(data_c2$Isolate), Temperature = unique(data_c2$Temperature)) 
-
-# Calculer les prédictions et les erreurs standard
 predictions = predict(Caul2.10, newdata = pred_data, type = "response", se.fit = TRUE)
-
-# Ajouter les prédictions et les intervalles de confiance à pred_data
 pred_data$Probability = predictions$fit
 pred_data$Lower_CI = predictions$fit - 1.96 * predictions$se.fit
 pred_data$Upper_CI = predictions$fit + 1.96 * predictions$se.fit
 
-# Créer le graphique avec les intervalles de confiance
 b = ggplot() +
   geom_jitter(data = data_c2, aes(x = Isolate, y = caulif_n, color = Isolate), 
-              width = 0.3, height = 0.1, alpha = 0.5, size=3) +  # Dispersion des points pour la visibilité
-  geom_point(data = pred_data, aes(x = Isolate, y = Probability), size = 1, group=1) +  # Courbes de prédiction
-  geom_errorbar(data = pred_data, aes(x = Isolate, ymin = Lower_CI, ymax = Upper_CI), width=0.2) +  # Ajouter les intervalles de confiance
+              width = 0.3, height = 0.1, alpha = 0.5, size=3) +  
+  geom_point(data = pred_data, aes(x = Isolate, y = Probability), size = 1, group=1) +  
+  geom_errorbar(data = pred_data, aes(x = Isolate, ymin = Lower_CI, ymax = Upper_CI), width=0.2) + 
   facet_grid(cols = vars(Temperature)) +  
   labs(
     x = "Temperature",
@@ -1456,7 +1445,7 @@ b = ggplot() +
     axis.text = element_text(size = 12),
     axis.title = element_text(size = 14)
   )+
-  #scale_y_continuous(breaks = c(0, 1), labels = c("No", "Yes")) + # Ajuster les étiqu
+  #scale_y_continuous(breaks = c(0, 1), labels = c("No", "Yes")) 
   scale_color_manual(values=lineage_colors)+
   scale_fill_manual(values=lineage_colors)
 b
@@ -1473,15 +1462,12 @@ infected = subset(infected,stade_max!="None")
 infected$stade_max = factor(infected$stade_max, ordered = T)
 infected$Temperature = factor(infected$Temperature, ordered = T)
 
-# On crée une nouvelle variable pour ne pas écraser l'originale
 infected$stade_simplifie <- fct_collapse(infected$stade_max,
   "Caul_Grapes" = c("Cauliflower", "Grapes"),
   "Imm_Mature"  = c("Immature", "Mature"),
   "2nd_Caul"    = "2nd_Cauliflower"
 )
 
-# Crucial : On s'assure que R comprend que c'est ordonné
-# (Vérifie bien que cet ordre est le bon ordre biologique !)
 infected$stade_simplifie <- factor(infected$stade_simplifie, 
                                   levels = c("Caul_Grapes", "Imm_Mature", "2nd_Caul"), 
                                   ordered = TRUE)
@@ -1530,7 +1516,7 @@ tab_model(selected_models, show.intercept = F)
 best_mod = polr(stade_simplifie ~ Isolate + Temperature + DeathAge, 
                 data = infected, Hess = TRUE)
 tab_model(best_mod)
-brant(best_mod) # Not much better, but on death age and omnibus, same concluisons, so I kept the other one.
+brant(best_mod) # Not much better, but same concluisons, so I kept the other one.
 tab_model(modele14)
 ```
 
