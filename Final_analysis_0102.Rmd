@@ -453,24 +453,28 @@ ggplot(km_df_combined, aes(x = time, y = surv, color = Temperature)) +
 
 ```{r, echo=F}
 table(dataC$Isolate, dataC$Temperature)
-dataC$Temperature
+surv_obj = Surv(time = dataC$DeathAge, event = dataC$statusDeath)
 fit_km = survfit(surv_obj ~ Temperature, data = dataC)
 plot(fit_km, fun = "cloglog",
-     col = 1:ntemp,
      lwd = 2,
+      col = c("grey40", "chartreuse4", "darkorange", "darkred"),
      xlab = "log(temps)", 
      ylab = "log(-log(S(t)))",
      main = "Log-log plot - Proportional Hazards check")
 ```
 
-We start first by running an analysis including the husbandry control along with the other genotype.
+We start first by running our initial analysis including the husbandry control along with the other genotype.
 
 *Warning!* It is important to note that under these conditions it is not possible to test the interaction between heatwave temperature and the absence of spores, as our husbandry controls were infected with crushed Daphnia bodies that did not experience any heatwaves.
 
 ```{r, echo=T}
-table(dataC$Isolate, dataC$Temperature)
 dataC$Temperature = factor(dataC$Temperature, levels = c("CTRL", 20, 30, 40), ordered = F)
 surv_obj = Surv(time = dataC$DeathAge, event = dataC$statusDeath)
+
+fit_cox_1 = coxph(surv_obj ~ 1, data = dataC)
+fit_cox_r = coxme(surv_obj ~ 1 + (1|Batch), data = dataC)
+
+AICc(fit_cox_1, fit_cox_r) # Random effect is not significantly improving our results
 
 fit_cox_1 = coxph(surv_obj ~ 1, data = dataC)
 fit_cox_2 = coxph(surv_obj ~ Temperature, data = dataC)
@@ -489,8 +493,8 @@ summary(fit_cox_2)
 \
 We can see that the main effect explaining survival variation is still temperature, with a significant decrease in mortality risk at higher temperatures (p = 0.002). The hazard ratio indicates a 39.4% reduction in mortality risk per temperature unit increase (HR = 0.606). This suggests that even when including the husbandry control, temperature remains a key factor influencing survival outcomes in exposed uninfected Daphnia.
 
+#### Comparision between the husbandry control and the other groups
 ```{r, echo=T}
-table(dataC$Isolate, dataC$Temperature)
 dataC$group <- factor(
   paste0(dataC$Isolate, dataC$Temperature),
   levels = c("CTRLCTRL","C120","C130","C140","C1420","C1430","C1440","C1820","C1830","C1840","C2420","C2430","C2440"),
@@ -510,12 +514,9 @@ test_ph
 summary(fit_cox_2)
 ```
 
-#### Visualisation of comparisions between the husbandry control and the other groups
+##### Visualisation of comparisions between the husbandry control and the other groups
 
 ```{r, echo=FALSE}
-library(broom)
-library(ggplot2)
-
 # Extraire les noms de groupes du modèle (sauf l'intercept)
 cox_df <- broom::tidy(fit_cox_2, exponentiate = TRUE, conf.int = TRUE)
 cox_df$term <- gsub("^group", "", cox_df$term)
@@ -548,17 +549,19 @@ ggplot(cox_df, aes(y = label, x = estimate, xmin = conf.low, xmax = conf.high, c
     "ns" = "#4575b4"           # blue
   )) +
   labs(
-    title = "Hazard ratios and significance for each group vs control",
-    subtitle = "Control group (CTRLCTRL) contains 27 individuals",
+    title = "Comparision of mortality risk for each group vs husbandry control",
+    subtitle = "Reference husbandry control group contains 27 individuals",
     x = "Hazard Ratio (log scale)",
     y = "Group (vs control)",
     color = "Significance"
   ) +
   theme_minimal() +
   theme(
-    axis.text.y = element_text(size = 16),
-    plot.title = element_text(size = 22, face = "bold"),
-    plot.subtitle = element_text(size = 16)
+    axis.text.y = element_text(size  = 16),
+    plot.title = element_text(size = 25, face = "bold"),
+    plot.subtitle = element_text(size = 18),
+    legend.title = element_text(size = 18),
+    legend.text = element_text(size = 16)
   )
 ```
 \
@@ -655,8 +658,7 @@ Only the age at death seems to reprduce at least once in their life time.
 ##### Visualisation
 
 ```{r, echo=FALSE, warning=FALSE}
-
-data_cat_summary_Ninf = not_infected %>%
+data_cat_summary_Ninf = not_infected %>% 
   mutate(DeathAgeGroup = cut(DeathAge, breaks = seq(15, max(DeathAge, na.rm = TRUE), by = 5), right = FALSE)) %>%
   filter(!is.na(Temperature)) %>%  # Exclure les valeurs manquantes de Temperature
   group_by(DeathAgeGroup, Temperature) %>%
@@ -684,16 +686,16 @@ p1
 
 ```{r, echo=TRUE, warning=FALSE, message=F}
 options(na.action = "na.fail")
-
-dataC_ninf = subset(dataC, InfectedStatus!="infected")
 summary(dataC_ninf)
 
-FC1 = glmmTMB(data=dataC_ninf, Never_repro~ Isolate + Temperature + DeathAge, family = "binomial", REML=T)
-FC1R = glmmTMB(data=dataC_ninf, Never_repro ~ Isolate + Temperature+ DeathAge + (1|Batch), family = "binomial", REML=T)
+dataC$Never_repro
+
+FC1 = glmmTMB(data=dataC, Never_repro~ Isolate + Temperature + DeathAge, family = "binomial", REML=T)
+FC1R = glmmTMB(data=dataC, Never_repro ~ Isolate + Temperature+ DeathAge + (1|Batch), family = "binomial", REML=T)
 
 AICc(FC1, FC1R)
 
-FC1 = glmmTMB(data=not_infected, Never_repro ~ Isolate * Temperature + DeathAge + (1|Batch), family = "binomial")
+FC1 = glmmTMB(data=dataC, Never_repro ~ Isolate * Temperature + DeathAge + (1|Batch), family = "binomial")
 model_selection = dredge(FC1)
 
 # Table of model comparison
@@ -703,20 +705,19 @@ models_within_2_AIC = subset(model_selection, delta < 2)
 selected_models = get.models(models_within_2_AIC, 1:nrow(models_within_2_AIC))
 tab_model(selected_models, show.intercept = F)
 
-best_model = get.models(model_selection, 1)[[1]]
+best_model = get.models(model_selection, 3)[[1]]
 summary(best_model)
 tab_model(best_model)
 
 simulateResiduals(best_model, plot=T)
 ```
-\
-Only the age at death seems to reprduce at least once in their life time, the husbandry control inclusion does not change this.
+
 
 ##### Visualisation
 
 ```{r, echo=FALSE, warning=FALSE}
 
-data_cat_summary_Ninf = not_infected %>%
+data_cat_summary_Ninf = dataC %>%
   mutate(DeathAgeGroup = cut(DeathAge, breaks = seq(15, max(DeathAge, na.rm = TRUE), by = 5), right = FALSE)) %>%
   filter(!is.na(Temperature)) %>%  # Exclure les valeurs manquantes de Temperature
   group_by(DeathAgeGroup, Temperature) %>%
@@ -736,7 +737,7 @@ p1 = ggplot(data_cat_summary_Ninf, aes(x = DeathAgeGroup, y = Proportion, fill =
   labs(title = "Fully castrated infected Daphnia", x = "Death Age Group (5-day intervals)", y = "Proportion") +
   #scale_fill_manual(values = lineage_colors, name = "Parasite Strain") +
   theme_minimal()+
-  scale_fill_manual(values=c("chartreuse4", "darkorange", "darkred"))
+  scale_fill_manual(values=c( "grey40", "chartreuse4", "darkorange", "darkred"))
 p1
 ```
 
@@ -915,15 +916,9 @@ Only the effect of time is important here; each day, a Daphnia produces on avera
 #### 4.2.3 Uninfected individuals (including unexposed husbandry control)
 
 ```{r, echo=TRUE, warning=FALSE, message=F}
-dataC$Isolate = as.character(dataC$Isolate)
-dataC$Isolate[is.na(dataC$Isolate)] = "unexposed"
-dataC$Isolate = as.factor(dataC$Isolate)
-
+dataC$Isolate = factor(dataC$Isolate, levels=c("CTRL", "C1", "C14", "C18", "C24"), ordered=FALSE)
 repro_nfC = subset(dataC, dataC$Clutch>0 & InfectedStatus!="inf")
-
-repro_nfC$Temperature = factor(repro_nfC$Temperature, labels = c("20", "30","40"), ordered = T)
-
-table(dataC$Isolate)
+repro_nfC$Temperature = factor(repro_nfC$Temperature, labels = c("CTRL", "20", "30","40"), ordered = F)
 
 FC1 = glmmTMB(data=repro_nfC, Nb_offspring ~ Isolate + Temperature + DeathAge, family = "gaussian", REML=F)
 #FC1 = glmmTMB(data=repro_nf, Nb_offspring ~ Isolate + Temperature+ DeathAge, family = "poisson", REML=F)
@@ -988,28 +983,6 @@ g = ggplot(repro_nfC, aes(y = Nb_offspring, x = DeathAge)) +
     legend.position = "right"
   )
 g
-
-e = ggplot(pred_grid, aes(x = DeathAge, y = Nb_offspring)) +
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.14) +  # Confidence intervals with no contour
-  geom_point(data = repro_nfC, aes(x = DeathAge, y = Nb_offspring), size = 3, alpha = 0.8) +  # Real data points
-  geom_line(size = 1.2) +  # Predicted lines
-  #geom_smooth()+
-  labs(
-    title = "",
-    x = "Death Age",
-    y = "",
-    color = "",
-    fill = ""
-  )+
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 14),
-    axis.text = element_text(size = 12),
-    axis.title = element_text(size = 14),
-    legend.position = "top"
-  )+
-  ylim(0,90)
-e
 ```
 
 #### 4.2.4 Descriptive stat per group
