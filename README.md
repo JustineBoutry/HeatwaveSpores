@@ -1,9 +1,39 @@
 Description of the data and file structure
-## 1. Data preparation and processing
+
+## 1. Repository Contents
+This repository contains all materials necessary to reproduce the analyses and explore the results presented in this study.
+
+#### Data files
+
+- Dataset.csv — Raw dataset in CSV format, readable by any standard software.
+- daphnia_data.rds — Same dataset in RDS format, optimized for use in R.
+
+#### Analysis script
+
+- Final_analysis_0102.Rmd — R Markdown script containing all statistical analyses, figures, and results presented in the manuscript.
+- Final_analysis_0102.html — Rendered HTML output of the R Markdown script, providing a fully reproducible and readable version of the complete analysis.
+
+#### Companion website files (available at https://justineboutry.github.io/HeatwaveSpores/)
+
+- index.html — Main page of the companion website, providing navigation across all analysis sections.
+- section1_data.html — Data description and exploration.
+- section2_infectious.html — Infectiousness analyses.
+- section3_survival.html — Survival analyses.
+- section4_reproduction.html — Reproduction analyses.
+- section5_lifecycle.html — Life cycle analyses.
+- section6_castration.html — Castration analyses.
+- split_sections.py — Python script used to extract each section from the full HTML output and generate the individual section files above.
+
+#### R environment files
+
+- .RData — Saved R workspace containing all objects from the analysis session.
+- .Rhistory — Record of R commands executed during the analysis.
+
+## 2. Data preparation and processing
 
 This section outlines the steps taken to clean, transform and structure our dataset (daphnia_data.rds) for subsequent analysis. Our dataset comprises various measurements of a sample of biological entities, including spore counts, infection statuses and life cycle metrics such as clutch size, offspring numbers and developmental stages. However, the raw dataset contained missing values that needed to be addressed prior to analysis.
 
-### 1.1 Column descriptions
+### Column descriptions
 
 Below is a detailed explanation of each column in the dataset. This breakdown is intended to provide clarity on the variable names, units, and biological significance.
 
@@ -57,7 +87,7 @@ Below is a detailed explanation of each column in the dataset. This breakdown is
 
 - group: A combination of isolation and temperature conditions (e.g. C1840) used to categorise samples in specific experimental settings.
 
-### 1.2 Key Data Processing Steps
+## 3. Key Data Processing Steps
 
 In the markdown document Final_analysis.Rmd you will find all the steps of the analyses. However, the main steps followed for each varaible analysed are listed below.
 
