@@ -1,7 +1,6 @@
 ---
-title: "The legacy of past heatwaves on 'off-host' parasite stages: Reduced infection risk and costs in the Daphnia-Pasteuria system"
+title: "Ecology - Appendix S2 : Phenotypic plasticity of 'off-host' parasite stages in response to heatwaves in the Daphnia-Pasteuria system"
 author: "Justine Boutry"
-date: "2024-11-05"
 output:
   html_document: default
   word_document: default
@@ -32,7 +31,7 @@ library(broom)
 library(ggplot2)
 ```
 \
-This supplementary R Markdown document provides the full analytical workflow and visual outputs referenced in the main manuscript "The legacy of past heatwaves on 'off-host' parasite stages: Reduced infection risk and costs in the Daphnia-Pasteuria system". All analyses were performed in R 4.4.2 (2024-10-31). The dataset and scripts are provided to ensure full reproducibility.
+This supplementary R Markdown document provides the full analytical workflow and visual outputs referenced in the main manuscript "Phenotypic plasticity of 'off-host' parasite stages in response to heatwaves in the Daphnia-Pasteuria system". All analyses were performed in R 4.4.2 (2024-10-31). The dataset and scripts are provided to ensure full reproducibility.
 
 ## 1. Data preparation and processing
 
